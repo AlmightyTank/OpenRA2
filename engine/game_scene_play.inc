@@ -21,6 +21,8 @@
         my_ = ev.y;
         mouse_present_ = !ev.touch;
         if (!gamepad_injecting_) {
+            // Physical pointer takes over: discard an in-progress gamepad box.
+            if (gamepad_commands_.cancel_box()) input_.cancel_gesture();
             // Physical touch/mouse takes over; the next stick movement starts
             // from that actual pointer location instead of jumping away.
             gamepad_active_ = false;

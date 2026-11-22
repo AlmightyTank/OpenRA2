@@ -86,6 +86,7 @@ static char* ra2_cli_pref_path() {
 #include "iso_renderer.hpp"
 #include "platform.hpp"
 #include "gamepad_cursor.hpp"
+#include "gamepad_commands.hpp"
 #include "platform_os.hpp"   // W2-AR-22 registry / folder picker / console
 #include "os_profiler.hpp"   // R-171 dev sampling profiler (RA2_PROFILE)
 #include <functional>        // W2-AR-10 deferred scene factories
@@ -7374,7 +7375,7 @@ public:
                      draw_mode_cursor(ren, tc, mouse_, world_, ba_, input_, mx_, my_,
                                       world_.repair_frame()));
         // G-08 (draw half): every other pointer is the MOUSE.SHP action cursor.
-        if (!drew && mouse_present_)
+        if (!drew && mouse_present_ && !gamepad_active_)
             drew = pres_.draw_cursor(ren, tc, mouse_, world_, input_, mx_, my_,
                                      sidebar_up_ && lay_.contains(mx_, my_), playfield_w_, kWinW,
                                      kWinH, world_.repair_frame(), static_cast<int>(cursor_action()));
