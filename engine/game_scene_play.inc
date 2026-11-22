@@ -15,10 +15,17 @@
         // W9-04-04: right after a network match returns from the background
         // a synthetic mouse event (a phone has no mouse) must not switch the
         // scene to mouse mode -- its corner position edge-scrolled the map.
-        if (!ev.touch && net_ignore_mouse_until_ && ra2mp::now_ms() < net_ignore_mouse_until_) return;
+        if (!ev.touch && !gamepad_injecting_ && net_ignore_mouse_until_ &&
+            ra2mp::now_ms() < net_ignore_mouse_until_) return;
         mx_ = ev.x;
         my_ = ev.y;
         mouse_present_ = !ev.touch;
+        if (!gamepad_injecting_) {
+            // Physical touch/mouse takes over; the next stick movement starts
+            // from that actual pointer location instead of jumping away.
+            gamepad_active_ = false;
+            gamepad_cursor_.sync_pointer(mx_, my_);
+        }
     }
 
     // Window pixel at the centre of map cell (cx, cy), level-aware (the same
