@@ -327,6 +327,56 @@ public:
         if (!art_.audio->sys.mixer->playing("menu:grinder")) art_.audio->sys.mixer->play("menu:grinder");
         art_.audio->sys.out.pump(*art_.audio->sys.mixer);
     }
+    void gamepad_frame(const ra2engine::GamepadState& pad, uint32_t now_ms) override {
+        using E = ra2engine::InputEvent;
+        if (!pad.connected) {
+            gamepad_pad_id_ = -1;
+            gamepad_button_ix_ = -1;
+            gamepad_nav_.reset(0);
+            return;
+        }
+        if (gamepad_pad_id_ != pad.instance_id) {
+            gamepad_pad_id_ = pad.instance_id;
+            gamepad_button_ix_ = -1;
+            gamepad_nav_.reset(pad.buttons);
+        }
+        const auto nav = gamepad_nav_.sample(pad.buttons);
+        // The confirmation owns input. No default "yes" controller button
+        // (a held A during reconnect must never approve a destructive action).
+        if (confirm_.open()) {
+            if (nav.cancel) {
+                E ev; ev.kind = E::Key; ev.key = ra2engine::kKeyEscape;
+                ev.t_ms = now_ms; handle(ev);
+            }
+            return;
+        }
+        const auto rows = buttons();
+        std::vector<bool> enabled;
+        for (const ShellButton& b : rows) enabled.push_back(b.enabled);
+        if (gamepad_button_ix_ < 0 || gamepad_button_ix_ >= static_cast<int>(rows.size()) ||
+            !enabled[static_cast<std::size_t>(gamepad_button_ix_)])
+            gamepad_button_ix_ = ra2engine::gamepad_menu_step(enabled, -1, 1);
+        const int direction = nav.down || nav.right ? 1 : nav.up || nav.left ? -1 : 0;
+        if (direction && gamepad_button_ix_ >= 0)
+            gamepad_button_ix_ = ra2engine::gamepad_menu_step(enabled, gamepad_button_ix_, direction);
+        if (gamepad_button_ix_ >= 0) {
+            const ra2engine::SbRect d = xform().hit(rows[static_cast<std::size_t>(gamepad_button_ix_)].rect);
+            E move; move.kind = E::PointerMove;
+            move.x = d.x + d.w / 2; move.y = d.y + d.h / 2;
+            move.t_ms = now_ms; handle(move);
+            if (nav.accept) {
+                E down = move; down.kind = E::PointerDown; down.button = E::Left;
+                handle(down);
+                E up = move; up.kind = E::PointerUp; up.button = E::Left;
+                handle(up);
+                gamepad_button_ix_ = -1;
+            }
+        }
+        if (nav.cancel) {
+            E ev; ev.kind = E::Key; ev.key = ra2engine::kKeyEscape;
+            ev.t_ms = now_ms; handle(ev);
+        }
+    }
     Scene* next() override { Scene* n = next_; next_ = nullptr; return n; }
     bool locate(const std::string& what, int& x, int& y) const override {
         const auto t = targets();
@@ -714,6 +764,9 @@ protected:
     Scene* next_ = nullptr;
     int mx_ = -1, my_ = -1;
     bool down_ = false;
+    ra2engine::GamepadNav gamepad_nav_;
+    int32_t gamepad_pad_id_ = -1;
+    int gamepad_button_ix_ = -1;
     double clock_ = 0.0;
 #if defined(__ANDROID__) || defined(RA2_IOS)
     bool touch_seen_ = true;                 // W9-04-06: a phone starts in touch metrics
