@@ -27,7 +27,9 @@ if [ -n "$SRC" ]; then
     echo "copying SDL2 $VER from $SRC"
     cp -a "$SRC/include" "$SRC/src" "$DEST/"
 else
-    TMP="$(mktemp -d "${XDG_CACHE_HOME:-$HOME/.cache}/ra2-sdl2.XXXXXX")"
+    CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}"
+    mkdir -p "$CACHE_DIR"  # clean GitHub macOS runners may not have ~/.cache
+    TMP="$(mktemp -d "$CACHE_DIR/ra2-sdl2.XXXXXX")"
     trap 'rm -rf "$TMP"' EXIT
     echo "downloading $URL"
     curl -fL --retry 3 -o "$TMP/sdl2.tar.gz" "$URL"
