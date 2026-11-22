@@ -148,6 +148,28 @@ func (s *Server) logf(f string, a ...any) { s.cfg.Logger.Printf(f, a...) }
 // RoomCount is the number of open rooms.
 func (s *Server) RoomCount() int { s.mu.Lock(); defer s.mu.Unlock(); return len(s.rooms) }
 
+// RoomStats summarizes concurrent rooms without disclosing private room names,
+// participant addresses or room codes. The caller gets one consistent snapshot.
+type RoomStats struct {
+	Total int
+	Waiting int
+	Started int
+	Private int
+	Participants int // hosted/connected room seats, not unique player accounts
+}
+func (s *Server) Stats() RoomStats {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var st RoomStats
+	st.Total = len(s.rooms)
+	for _, r := range s.rooms {
+		if r.Started { st.Started++ } else { st.Waiting++ }
+		if r.Private { st.Private++ }
+		st.Participants += len(r.members) + 1
+	}
+	return st
+}
+
 // A host's room update can lag behind actual TCP joins. Count the larger
 // value so concurrent joins cannot overfill a room before the next update.
 func roomPlayerCount(r *Room) int {
