@@ -26,7 +26,7 @@ import (
 	"syscall"
 	"time"
 
-	"ra2lobbyd/internal/admin"
+	adminpanel "ra2lobbyd/internal/admin"
 	"ra2lobbyd/internal/lobby"
 	"ra2lobbyd/internal/relay"
 	"ra2lobbyd/internal/tunnel"
@@ -130,7 +130,7 @@ func main() {
 		// Both the existing metrics endpoint and the optional dashboard are
 		// strictly local. SSH port forwarding is supported; binding publicly
 		// is rejected rather than risking a management interface exposure.
-		if !admin.LoopbackOnly(*admin) {
+		if !adminpanel.LoopbackOnly(*admin) {
 			logger.Fatalf("admin listener must bind to localhost/loopback, got %q", *admin)
 		}
 		token := os.Getenv("RA2_ADMIN_TOKEN")
@@ -177,7 +177,7 @@ func parseRange(s string) (int, int, error) {
 func serveAdmin(addr string, srv *lobby.Server, v2 *tunnel.V2, v3 *tunnel.V3, pool *relay.Pool, token string, logger *log.Logger) {
 	mux := http.NewServeMux()
 	if token != "" {
-		h, err := admin.New(srv, v2, v3, pool, token)
+		h, err := adminpanel.New(srv, v2, v3, pool, token)
 		if err != nil {
 			logger.Printf("admin dashboard disabled: %v", err)
 			return
