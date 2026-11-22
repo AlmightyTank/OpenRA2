@@ -876,3 +876,51 @@ TEST_CASE("mp: reconnect clears queued Internet lobby notifications") {
     CHECK(link.motd().empty());
     CHECK(link.state() == ServerLink::State::Idle);
 }
+
+TEST_CASE("mp: S0.1D V3 endpoint refresh and reconnect use clean probe state") {
+    UdpSocket relay;
+    REQUIRE(relay.open(0));
+    const Addr endpoint{kLoopback, relay.local_port()};
+    MpNet phone;
+    CHECK_FALSE(phone.open_tunnel(endpoint, 0)); // reserved ping/maintenance id
+    REQUIRE(phone.open_tunnel(endpoint, 0xAA0101u));
+    CHECK(phone.rtt_ms() == -1);
+    CHECK(phone.my_v3() == 0xAA0101u);
+    CHECK(phone.tunnel());
+    const std::uint64_t now = now_ms();
+    phone.refresh_tunnel(now);
+
+    // Same socket remains in use and announces the current ID immediately,
+    // not just after the ordinary five-second heartbeat interval.
+    std::uint8_t buf[2048] = {};
+    Addr from;
+    bool saw_registration = false;
+    bool saw_ping = false;
+    const std::uint64_t deadline = now_ms() + 2000;
+    while (now_ms() < deadline && (!saw_registration || !saw_ping)) {
+        for (int n; (n = relay.recv_from(from, buf, sizeof buf)) > 0;) {
+            std::uint32_t sender = 0, receiver = 0;
+            const std::uint8_t* payload = nullptr;
+            std::size_t payload_n = 0;
+            if (ra2::net::tunnel_unwrap(ra2::net::TunnelMode::V3, buf, static_cast<std::size_t>(n),
+                                        &sender, &receiver, &payload, &payload_n)) {
+                if (sender == phone.my_v3() && receiver == 0xFFFFFFFEu)
+                    saw_registration = true;
+                if (sender == 0 && receiver == 0 && n == 50)
+                    saw_ping = true;
+            }
+        }
+    }
+    CHECK(saw_registration);
+    CHECK(saw_ping);
+
+    const auto old_port = phone.port();
+    phone.refresh_tunnel(now_ms());
+    CHECK(phone.port() == old_port);
+    CHECK(phone.my_v3() == 0xAA0101u);
+
+    // Opening a fresh session must never preserve stale V3 identity or RTT.
+    REQUIRE(phone.open_tunnel(endpoint, 0xBB0202u));
+    CHECK(phone.my_v3() == 0xBB0202u);
+    CHECK(phone.rtt_ms() == -1);
+}
