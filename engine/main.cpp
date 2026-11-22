@@ -8872,7 +8872,34 @@ public:
             move(shell_focus_);
         }
         const auto e = shell_nav_.sample(pad.buttons);
-        if (gf_confirm_.open() || kb_.open_ || sld_.is_open()) {
+        if (gf_confirm_.open()) {
+            const int n = gf_confirm_.button_count();
+            if (n <= 0) return;
+            bool moved = false;
+            if (shell_confirm_ix_ < 0 || shell_confirm_ix_ >= n) {
+                shell_confirm_ix_ = n - 1; // safe default = Cancel
+                moved = true;
+            }
+            if (e.up || e.left) { shell_confirm_ix_ = (shell_confirm_ix_ + n - 1) % n; moved = true; }
+            if (e.down || e.right) { shell_confirm_ix_ = (shell_confirm_ix_ + 1) % n; moved = true; }
+            if (moved || e.accept) {
+                const ra2engine::SbRect r = gf_confirm_.btn(shell_confirm_ix_);
+                IE ev; ev.kind = IE::PointerMove; ev.x = r.x + r.w / 2;
+                ev.y = r.y + r.h / 2; ev.t_ms = now;
+                handle(ev);
+                if (e.accept) {
+                    ev.kind = IE::PointerDown; ev.button = IE::Left;
+                    handle(ev); // existing confirm handler; no automatic Yes
+                }
+            }
+            if (e.cancel) {
+                IE ev; ev.kind = IE::Key; ev.key = ra2engine::kKeyEscape;
+                ev.t_ms = now; handle(ev);
+            }
+            return;
+        }
+        shell_confirm_ix_ = -1;
+        if (kb_.open_ || sld_.is_open()) {
             if (e.cancel) {
                 IE ev; ev.kind = IE::Key; ev.key = ra2engine::kKeyEscape;
                 ev.t_ms = now; handle(ev);
@@ -9156,6 +9183,7 @@ private:
     int32_t shell_pad_id_ = -1;
     ShellPage shell_page_ = PAGE_MAIN;
     int shell_focus_ = -1;
+    int shell_confirm_ix_ = -1;
     int          mx_ = -1, my_ = -1;   // last pointer position (for hover state)
     bool         down_ = false;        // left button currently held (pressed state)
     SaveLoadDialog sld_;               // P7: "Load Saved Game" (Load mode)
