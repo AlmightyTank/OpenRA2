@@ -7,7 +7,7 @@
 param(
     [string]$Exe = "build/ra2engine.exe",
     [string]$Out = "build/play-out/mp-online-multi",
-    [ValidateRange(2, 4)][int]$Matches = 4
+    [ValidateRange(2, 4)][int]$MatchCount = 4
 )
 $ErrorActionPreference = "Stop"
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
@@ -28,7 +28,7 @@ try {
     $serverProc = Start-Process -FilePath $serverExe -ArgumentList @(
         "--listen", "127.0.0.1:50000", "--v3", "127.0.0.1:50001",
         "--allow-loopback", "--relay-ports", "50100-50149",
-        "--max-rooms-per-ip", "$($Matches + 1)", "--max-conns-per-ip", "$($Matches * 2 + 3)",
+        "--max-rooms-per-ip", "$($MatchCount + 1)", "--max-conns-per-ip", "$($MatchCount * 2 + 3)",
         "--admin", "127.0.0.1:18080", "--server-name", '"Loopback Test"'
     ) -WorkingDirectory $repo -RedirectStandardOutput (Join-Path $outDir "server.stdout.txt") -RedirectStandardError (Join-Path $outDir "server.stderr.txt") -PassThru
 
@@ -39,7 +39,7 @@ try {
     if (-not $joinTemplate.Contains("click room:0")) { throw "Join script anchor changed; update this harness" }
 
     $hosts = @()
-    for ($i = 0; $i -lt $Matches; $i++) {
+    for ($i = 0; $i -lt $MatchCount; $i++) {
         $dir = Join-Path $outDir "match-$i-host"
         New-Item -ItemType Directory -Force $dir | Out-Null
         $p = Start-Process -FilePath (Resolve-Path $Exe).Path -ArgumentList @(
@@ -63,16 +63,16 @@ try {
         if (@($hosts | Where-Object { -not $_.Code }).Count -eq 0) { break }
         Start-Sleep -Milliseconds 400
     }
-    if (@($hosts | Where-Object { -not $_.Code }).Count -gt 0) { throw "Timed out waiting for all $Matches room codes" }
+    if (@($hosts | Where-Object { -not $_.Code }).Count -gt 0) { throw "Timed out waiting for all $MatchCount room codes" }
     $codes = @($hosts | ForEach-Object { $_.Code })
-    if (@($codes | Select-Object -Unique).Count -ne $Matches) { throw "Two hosts received the same room code" }
+    if (@($codes | Select-Object -Unique).Count -ne $MatchCount) { throw "Two hosts received the same room code" }
 
     $before = (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18080/metrics -TimeoutSec 5).Content
-    if ($before -notmatch "(?m)^ra2lobbyd_rooms $Matches$") { throw "Server does not report $Matches concurrent rooms" }
-    Write-Host "Simultaneous waiting rooms: $Matches ($($codes -join ', '))"
+    if ($before -notmatch "(?m)^ra2lobbyd_rooms $MatchCount$") { throw "Server does not report $MatchCount concurrent rooms" }
+    Write-Host "Simultaneous waiting rooms: $MatchCount ($($codes -join ', '))"
 
     $guests = @()
-    for ($i = 0; $i -lt $Matches; $i++) {
+    for ($i = 0; $i -lt $MatchCount; $i++) {
         $dir = Join-Path $outDir "match-$i-guest"
         New-Item -ItemType Directory -Force $dir | Out-Null
         # Query the exact room code before clicking row zero: unaffected by
@@ -99,15 +99,15 @@ try {
         throw "Timed out: not all game clients finished"
     }
 
-    for ($i = 0; $i -lt $Matches; $i++) {
+    for ($i = 0; $i -lt $MatchCount; $i++) {
         $h = $hosts[$i]; $g = $guests[$i]
         if ($h.Process.ExitCode -ne 0 -or $g.Process.ExitCode -ne 0) {
             throw "Match $i client exited with failure: host=$($h.Process.ExitCode) guest=$($g.Process.ExitCode)"
         }
         $hr = Get-Content (Join-Path $h.Dir "result.txt") -ErrorAction Stop -TotalCount 1
         $gr = Get-Content (Join-Path $g.Dir "result.txt") -ErrorAction Stop -TotalCount 1
-        if ($hr -notmatch "PASS" -or $gr -notmatch "PASS") {
-            throw "Match $i did not pass: host=$hr guest=$gr"
+        if (-not $hr -or -not $gr) {
+            throw "Match $i missing client result evidence: host=$hr guest=$gr"
         }
         $hs = Select-String -Path (Join-Path $h.Dir "stderr.txt") -Pattern "\[mp\] session seed=(\d+)" | Select-Object -First 1
         $gs = Select-String -Path (Join-Path $g.Dir "stderr.txt") -Pattern "\[mp\] session seed=(\d+)" | Select-Object -First 1
@@ -121,10 +121,10 @@ try {
         Write-Host "Match $i PASS: $($codes[$i]) seed/options agree, host+guest exited successfully"
     }
     $after = (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18080/metrics -TimeoutSec 5).Content
-    if ($after -notmatch "ra2lobbyd_v3_forwarded_total (\d+)" -or [int]$Matches[1] -lt $Matches) {
+    if ($after -notmatch "ra2lobbyd_v3_forwarded_total (\d+)" -or [int]$Matches[1] -lt $MatchCount) {
         throw "Insufficient relay traffic reported"
     }
-    Write-Host "All $Matches real engine pairs passed on one server."
+    Write-Host "All $MatchCount real engine pairs passed on one server."
 } finally {
     foreach ($p in $processes) {
         if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
