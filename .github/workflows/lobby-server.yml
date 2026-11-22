@@ -26,6 +26,8 @@ jobs:
       - name: Unit and concurrent integration tests
         run: go test -count=1 ./...
         working-directory: server
+      - name: Validate standalone dashboard JavaScript
+        run: node --check server/internal/admin/static/dashboard.js
       - name: Repeated real-socket multi-match stress
         run: go test -count=5 -run TestLive ./internal/lobby
         working-directory: server
