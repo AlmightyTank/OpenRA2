@@ -353,17 +353,23 @@ public:
         const auto rows = buttons();
         std::vector<bool> enabled;
         for (const ShellButton& b : rows) enabled.push_back(b.enabled);
+        bool moved = false;
         if (gamepad_button_ix_ < 0 || gamepad_button_ix_ >= static_cast<int>(rows.size()) ||
-            !enabled[static_cast<std::size_t>(gamepad_button_ix_)])
+            !enabled[static_cast<std::size_t>(gamepad_button_ix_)]) {
             gamepad_button_ix_ = ra2engine::gamepad_menu_step(enabled, -1, 1);
+            moved = true;
+        }
         const int direction = nav.down || nav.right ? 1 : nav.up || nav.left ? -1 : 0;
-        if (direction && gamepad_button_ix_ >= 0)
+        if (direction && gamepad_button_ix_ >= 0) {
             gamepad_button_ix_ = ra2engine::gamepad_menu_step(enabled, gamepad_button_ix_, direction);
+            moved = true;
+        }
         if (gamepad_button_ix_ >= 0) {
             const ra2engine::SbRect d = xform().hit(rows[static_cast<std::size_t>(gamepad_button_ix_)].rect);
             E move; move.kind = E::PointerMove;
             move.x = d.x + d.w / 2; move.y = d.y + d.h / 2;
-            move.t_ms = now_ms; handle(move);
+            move.t_ms = now_ms;
+            if (moved || nav.accept) handle(move); // idle gamepad never hijacks touch/mouse
             if (nav.accept) {
                 E down = move; down.kind = E::PointerDown; down.button = E::Left;
                 handle(down);
