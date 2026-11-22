@@ -235,3 +235,25 @@ TEST_CASE("yuri economy: deployed refinery creates five workers and releases the
     for (const Unit& u : w.units())
         if (u.alive && u.image == "SLAV") CHECK_FALSE(u.is_harvester);
 }
+
+TEST_CASE("yuri economy: entering an owned Grinder consumes unit and refunds half its cost") {
+    MCV_WORLD(w, x0, y0);
+    BuildingTypeDef grinder = conyard_def();
+    grinder.id = "YAGRND";
+    grinder.conyard = false;
+    w.set_building_types({grinder});
+    const int bi = w.add_building(0, x0 + 4, y0 + 4, 4, 4, 0, 1000,
+                                  armor_index("wood"), 0.0, true);
+    REQUIRE(bi >= 0);
+    UnitCombat infantry = mcv_combat();
+    infantry.image = "INIT";
+    infantry.is_vehicle = false;
+    infantry.deploys_into.clear();
+    w.add_combat_unit(x0 + 3, y0 + 5, 0, infantry);
+    w.units()[0].vet.cost = 500;
+    CHECK(w.is_yuri_grinder(bi));
+    w.group_grind(0, {0}, bi);
+    w.step(1.0 / 15.0);
+    CHECK_FALSE(w.units()[0].alive);
+    CHECK(w.take_income(0) == doctest::Approx(250.0));
+}
