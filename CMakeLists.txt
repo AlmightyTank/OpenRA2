@@ -128,6 +128,8 @@ target_sources(ra2assets_tests PRIVATE tests/test_gamepad_registry.cpp)
 target_sources(ra2assets_tests PRIVATE tests/test_gamepad_cursor.cpp)
 # V0.1D SDL-free controller button/trigger tests.
 target_sources(ra2assets_tests PRIVATE tests/test_gamepad_commands.cpp)
+# v0.1E controller navigation, menu focus and edge-debouncing regression tests.
+target_sources(ra2assets_tests PRIVATE tests/test_gamepad_navigation.cpp)
 # occupancy.cpp is a pure C++17 cell-ownership grid (no SDL) used by the
 # multi-unit movement/collision logic; compiled into both this test binary and
 # ra2engine from one source of truth (same pattern as pathfind.cpp/world.cpp).
