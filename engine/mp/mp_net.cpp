@@ -14,11 +14,18 @@ bool MpNet::open_direct(std::uint16_t port) {
     if (!io->open(port)) return false;
     udp_ = std::move(io);
     tunnel_mode_ = false;
+    me_ = 0;
+    last_keep_ = ping_sent_ = 0;
+    ping_nonce_ = 0;
+    rtt_ = -1;
     net_ = std::make_unique<ra2::net::NetManager>(*udp_, wall_ms);
     return true;
 }
 
 bool MpNet::open_tunnel(const Addr& tunnel, std::uint32_t my_v3) {
+    // V3 id 0 is reserved for ping/maintenance, and an empty relay
+    // address can never be a usable Internet destination.
+    if (my_v3 == 0 || tunnel.ip == 0 || tunnel.port == 0) return false;
     auto io = std::make_unique<ra2::net::UdpDatagramIO>();
     if (!io->open(0)) return false;
     io->set_tunnel(ra2::net::TunnelMode::V3, tunnel, my_v3);
@@ -32,7 +39,9 @@ bool MpNet::open_tunnel(const Addr& tunnel, std::uint32_t my_v3) {
     tunnel_mode_ = true;
     tunnel_ = tunnel;
     me_ = my_v3;
-    last_keep_ = 0;
+    last_keep_ = ping_sent_ = 0;
+    ping_nonce_ = 0;
+    rtt_ = -1;
     net_ = std::make_unique<ra2::net::NetManager>(*udp_, wall_ms);
     return true;
 }
@@ -40,6 +49,9 @@ bool MpNet::open_tunnel(const Addr& tunnel, std::uint32_t my_v3) {
 void MpNet::open_loopback(ra2::net::LoopbackHub& hub, const Addr& self, std::function<std::uint32_t()> clock_ms) {
     udp_.reset();
     tunnel_mode_ = false;
+    last_keep_ = ping_sent_ = 0;
+    ping_nonce_ = 0;
+    rtt_ = -1;
     net_ = std::make_unique<ra2::net::NetManager>(*hub.create(ra2::net::PeerAddr{self, 0}), std::move(clock_ms));
 }
 
@@ -60,23 +72,29 @@ std::string MpNet::describe(PeerId p) const {
     return Addr{static_cast<std::uint32_t>(p >> 16), static_cast<std::uint16_t>(p & 0xFFFF)}.str();
 }
 
+void MpNet::refresh_tunnel(std::uint64_t now) {
+    if (!tunnel_mode_ || !udp_ || !me_) return;
+    // Register / refresh this exact V3 id and socket at the relay; sending
+    // to the reserved sink doesn't forward a packet to any match.
+    std::vector<std::uint8_t> registration;
+    ra2::net::tunnel_wrap(ra2::net::TunnelMode::V3, me_, 0xFFFFFFFEu, nullptr, 0, registration);
+    udp_->socket().send_to(tunnel_, registration.data(), registration.size());
+
+    // Do not queue multiple probes; bound RTT to the nonce on the wire.
+    // A previous probe may have been lost while Android was suspended.
+    if (ping_sent_ == 0 || now < ping_sent_ || now - ping_sent_ >= 4000) {
+        ping_nonce_ = static_cast<std::uint32_t>(now * 2654435761u) | 1u;
+        const std::vector<std::uint8_t> ping = ra2::net::make_tunnel_ping(ping_nonce_);
+        udp_->socket().send_to(tunnel_, ping.data(), ping.size());
+        ping_sent_ = now ? now : 1;
+    }
+    last_keep_ = now ? now : 1;
+}
+
 void MpNet::tick(std::uint64_t now) {
     if (!tunnel_mode_ || !udp_) return;
-    // Register / refresh our id at the tunnel (V3 learns the sender's
-    // endpoint from its first packet; the receiver may not exist yet, the
-    // tunnel then just drops the payload). 0xFFFFFFFE is never a real id.
-    if (last_keep_ == 0 || now - last_keep_ >= 5000) {
-        std::vector<std::uint8_t> out;
-        ra2::net::tunnel_wrap(ra2::net::TunnelMode::V3, me_, 0xFFFFFFFEu, nullptr, 0, out);
-        udp_->socket().send_to(tunnel_, out.data(), out.size());
-        if (ping_sent_ == 0 || now - ping_sent_ > 4000) {
-            ping_nonce_ = static_cast<std::uint32_t>(now * 2654435761u) | 1u;
-            const std::vector<std::uint8_t> ping = ra2::net::make_tunnel_ping(ping_nonce_);
-            udp_->socket().send_to(tunnel_, ping.data(), ping.size());
-            ping_sent_ = now_ms();
-        }
-        last_keep_ = now;
-    }
+    if (last_keep_ == 0 || now < last_keep_ || now - last_keep_ >= 5000)
+        refresh_tunnel(now);
 }
 
 // ------------------------------------------------------------ LobbyChannel --
