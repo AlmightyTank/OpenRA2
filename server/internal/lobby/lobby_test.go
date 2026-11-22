@@ -70,7 +70,7 @@ func (c *tc) expect(typ string) Msg {
 }
 
 func hello(nick string) Msg {
-	return Msg{T: "hello", Magic: Magic, Proto: 1, Ver: "0.9.0", Sim: 1, Rules: "1234abcd", Plat: 1,
+	return Msg{T: "hello", Magic: Magic, Proto: ProtoMin, Ver: "0.9.0", Sim: 1, Rules: "1234abcd", Plat: 1,
 		PID: NewPID(), Nick: nick}
 }
 
@@ -144,7 +144,7 @@ func TestRoomFlowAddressExchange(t *testing.T) {
 	host := dial(t, addr)
 	host.send(hello("Host"))
 	ok := host.expect("hello_ok")
-	if ok.Server != "Test" || ok.MOTD != "hi" || ok.V3Port != 50001 || ok.ProtoLo != 1 {
+	if ok.Server != "Test" || ok.MOTD != "hi" || ok.V3Port != 50001 || ok.ProtoLo != ProtoMin {
 		t.Fatalf("hello_ok %+v", ok)
 	}
 	host.send(Msg{T: "create", Name: "Friday", Max: 4, Map: "Tour of Egypt", V3: 0xAAAA0001})
