@@ -231,3 +231,30 @@ TEST_CASE("lobby: Random resolution never duplicates a colour; deterministic per
         CHECK(a[i].country == b[i].country);
     }
 }
+
+
+TEST_CASE("lobby: Yuri country survives save, restore, and skirmish conversion") {
+    std::vector<std::string> countries = kCountries;
+    countries.push_back("YuriCountry");
+    LobbyConvertCtx c = ctx(19);
+    c.countries = countries;
+    c.side_of = [](const std::string& country) {
+        if (country == "YuriCountry") return World::Side::Yuri;
+        return (country == "Africans" || country == "Arabs" ||
+                country == "Confederation" || country == "Russians")
+                   ? World::Side::Soviet : World::Side::Allied;
+    };
+    LobbyState st = lobby_first_run({});
+    lobby_set_country(st, 0, static_cast<int>(countries.size()) - 1);
+    lobby_set_ai(st, 1, kLobbyAiMedium);
+    lobby_set_country(st, 1, 0);
+    IniDoc saved;
+    lobby_store(st, saved, countries);
+    const LobbyState restored = lobby_load(saved, lobby_first_run({}), {}, countries);
+    CHECK(restored.rows[0].country == static_cast<int>(countries.size()) - 1);
+    const SkirmishConfig cfg = lobby_to_config(restored, c);
+    REQUIRE(cfg.slots.size() >= 2);
+    CHECK(cfg.slots[0].country == "YuriCountry");
+    CHECK(cfg.slots[0].side == World::Side::Yuri);
+    CHECK(cfg.slots[1].side == World::Side::Allied);
+}

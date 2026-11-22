@@ -3,7 +3,7 @@
 // or a campaign GameScene from campaign_config -- at a fixed 1/15 s tick with
 // input-shaped orders (the D-key order_deploy path, sidebar cameo clicks, map
 // clicks), prints `gf_play` probe lines, writes PNGs and exits 0 on PASS.
-// Scenarios: skirmish | win | lose | campaign:<MAP>[:GDI|Nod].
+// Scenarios: skirmish | soviet | yuri | win | lose | campaign:<MAP>[:GDI|Nod].
 // Included after run_menu (needs every scene class).
 
 namespace gfplay {
@@ -193,9 +193,10 @@ int run_gf_play(const std::string& scenario, const std::string& out_dir) {
     c.out = out_dir;
     std::filesystem::create_directories(out_dir);
 
-    if (scenario == "skirmish" || scenario == "soviet" || scenario == "win" || scenario == "lose") {
+    if (scenario == "skirmish" || scenario == "soviet" || scenario == "yuri" || scenario == "win" || scenario == "lose") {
         // "soviet": P0 cycles Americans -> ... -> Russians (8 clicks) in the lobby.
-        std::unique_ptr<GameScene> g(start_from_lobby(c, rules, store.art, scenario == "soviet" ? 8 : 0));
+        std::unique_ptr<GameScene> g(start_from_lobby(c, rules, store.art,
+                                                        scenario == "yuri" ? 9 : (scenario == "soviet" ? 8 : 0)));
         if (!g) return 1;
         ra2engine::World& w = g->gf_world();
         const int pu = count_units(w, 0, false), pm = count_units(w, 0, true);
@@ -213,7 +214,9 @@ int run_gf_play(const std::string& scenario, const std::string& out_dir) {
         c.check(!w.house_defeated(0), "MCV-only house is not defeated (ShortGame BaseUnit rule)");
         if (scenario == "soviet")
             c.check(w.house_side(0) == ra2engine::World::Side::Soviet, "lobby country Russians -> Soviet house");
-        if (scenario == "skirmish" || scenario == "soviet") {
+        if (scenario == "yuri")
+            c.check(w.house_side(0) == ra2engine::World::Side::Yuri, "lobby country YuriCountry -> Yuri house");
+        if (scenario == "skirmish" || scenario == "soviet" || scenario == "yuri") {
             const int cy = deploy_player_mcv(c, *g, 900);
             c.check(cy >= 0, "player MCV deployed into an Idle ConYard");
             if (cy >= 0) g->gf_center_cell(w.buildings()[(std::size_t)cy].cx + 1, w.buildings()[(std::size_t)cy].cy + 1);
@@ -224,8 +227,21 @@ int run_gf_play(const std::string& scenario, const std::string& out_dir) {
             c.check(ai_cy >= 0, "AI house deployed its MCV");
             if (cy >= 0) {   // (Soviet strip = A's G-03, merged)
                 const bool soviet = w.house_side(0) == ra2engine::World::Side::Soviet;
-                const bool built = build_from_sidebar(c, *g, soviet ? "NAPOWR" : "GAPOWR", cy);
+                const bool yuri = w.house_side(0) == ra2engine::World::Side::Yuri;
+                if (yuri)
+                    c.check(count_buildings(w, 0, "YACNST") == 1, "Yuri PCV unfolds into YACNST");
+                const bool built = build_from_sidebar(c, *g, yuri ? "YAPOWR" : (soviet ? "NAPOWR" : "GAPOWR"), cy);
                 c.check(built, "ConYard builds a power plant from the sidebar");
+                if (yuri && built) {
+                    // A complete v0.2A smoke must demonstrate the core Yuri
+                    // production prerequisite chain, not just faction selection.
+                    const bool barracks = build_from_sidebar(c, *g, "YABRCK", cy);
+                    c.check(barracks, "Yuri Barracks placed from the sidebar");
+                    if (barracks) {
+                        const bool war_factory = build_from_sidebar(c, *g, "YAWEAP", cy);
+                        c.check(war_factory, "Yuri War Factory placed from the sidebar");
+                    }
+                }
                 step(*g, 60);
                 g->gf_center_cell(w.buildings()[(std::size_t)cy].cx + 2, w.buildings()[(std::size_t)cy].cy + 1);
                 c.shot(*g, "gf_built.png");
