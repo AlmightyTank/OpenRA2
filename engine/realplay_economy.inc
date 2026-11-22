@@ -99,16 +99,22 @@ bool rp_is_lobby_sw_building(const Rules& rules, const std::string& id) {
     return rp_flag(rules, sw, "DisableableFromShell");
 }
 
-// The human's country: the lobby slot's country when its [Country] Side=
-// matches the slot's side (GDI=Allied, Nod=Soviet), else the side's stock
-// default (Americans / Russians). The lobby's side button changes only the
-// side, so a stale "Americans" on a Soviet slot must not leak through.
+// Resolve all three player countries without leaking an Allied/Soviet roster
+// into a Yuri game. Country-specific ownership controls production; a wrong
+// fallback here silently removes the entire ThirdSide roster from the sidebar.
 std::string rp_player_country(const Rules& rules, const ra2engine::SkirmishSlot& s) {
+    const bool yuri = s.side == ra2engine::World::Side::Yuri;
     const bool soviet = s.side == ra2engine::World::Side::Soviet;
-    const std::string want = soviet ? "NOD" : "GDI";
-    if (!s.country.empty() && rp_upper(rules.section_string(s.country, "Side", "")) == want)
-        return s.country;
-    return soviet ? "Russians" : "Americans";
+    const std::string want = yuri ? "THIRDSIDE" : (soviet ? "NOD" : "GDI");
+    const std::string fallback = yuri ? "YuriCountry" : (soviet ? "Russians" : "Americans");
+    if (!s.country.empty()) {
+        const std::string actual = rp_upper(rules.section_string(s.country, "Side", ""));
+        if (actual == want || (yuri && actual == "YURI"))
+            return s.country;
+        // A few modded rules files omit the Side= field for YuriCountry.
+        if (yuri && s.country == "YuriCountry" && actual.empty()) return s.country;
+    }
+    return fallback;
 }
 
 // One unit queue category per rules type [RE: roster2.md TL;DR 7;
