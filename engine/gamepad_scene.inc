@@ -5,7 +5,7 @@
     bool gamepad_active_ = false;   // last active pointer source was controller
     bool gamepad_injecting_ = false; // mark synthetic events for track_pointer()
 
-    bool gamepad_modal_blocked() const {
+    bool gamepad_modal_blocked() {
         // The base input layer must never pan during modal UI, lock input,
         // movies, chat typing, or multiplayer reconnect/end interruptions.
         return input_locked_ || ingame_movie_.active() || menu_.open_ ||
