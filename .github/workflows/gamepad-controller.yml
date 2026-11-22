@@ -41,3 +41,21 @@ jobs:
             -o /tmp/ra2-gamepad-tests
       - name: Execute controller and cursor tests
         run: /tmp/ra2-gamepad-tests --test-case="gamepad*"
+
+  linux-engine-compile:
+    name: Linux SDL2 engine compile
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SDL2 build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config libasound2-dev libpulse-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev \
+            libxi-dev libxss-dev libxkbcommon-dev
+      - name: Configure engine with pinned SDL2
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DRA2_BUILD_ENGINE=ON
+      - name: Compile engine
+        run: cmake --build build --target ra2engine --parallel 2
