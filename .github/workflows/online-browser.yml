@@ -3,11 +3,14 @@ on:
   push:
     branches:
       - feature/multiplayer-server-v0.1
+      - feature/android-gamepad-v0.1
     paths:
       - 'engine/mp_pages.inc'
       - 'engine/main.cpp'
       - 'engine/mp/**'
       - 'tests/test_room_browser.cpp'
+      - 'tests/test_mp.cpp'
+      - 'engine/game_scene_net.inc'
       - 'CMakeLists.txt'
       - '.github/workflows/online-browser.yml'
   pull_request:
@@ -16,6 +19,8 @@ on:
       - 'engine/main.cpp'
       - 'engine/mp/**'
       - 'tests/test_room_browser.cpp'
+      - 'tests/test_mp.cpp'
+      - 'engine/game_scene_net.inc'
       - 'CMakeLists.txt'
       - '.github/workflows/online-browser.yml'
 
