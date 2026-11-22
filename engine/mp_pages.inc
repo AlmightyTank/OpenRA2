@@ -1438,6 +1438,9 @@ private:
         if (!bg_away_) return;
         bg_away_ = false;
         const std::uint64_t now = ra2mp::now_ms();
+        // The phone may have switched Wi-Fi/cellular networks while
+        // suspended. Advertise its current V3 endpoint before BACK.
+        if (transport_) transport_->refresh_tunnel(now);
         if (host_) {
             host_->resume(now);
             host_->away(true, 0);
