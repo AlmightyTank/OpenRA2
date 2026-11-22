@@ -90,4 +90,24 @@ RA2_ADMIN_URL="http://127.0.0.1:19999" RA2_RELEASE_ROOT="$ROOT/bootstrap-root" \
   bash server/deploy/release.sh bootstrap "$BIN" "$ROOT/checksum" --apply >"$ROOT/bootstrap"
 [[ -x "$ROOT/bootstrap-root/current/ra2lobbyd" ]] ||
   { echo "explicit first-install stage missing" >&2;exit 1; }
-echo "PASS: health, operator auth, metrics, dry-run preflight, guarded staging, bootstrap and rollback"
+# Emergency rollback is allowed only if an installed systemd unit is
+# CONFIRMED inactive. Mock systemctl on PATH: do not touch the real service.
+mkdir -p "$ROOT/fake-bin"
+cat >"$ROOT/fake-bin/systemctl" <<'FAKE_SYSTEMCTL'
+#!/usr/bin/env bash
+if [[ "${1:-}" == show ]]; then echo loaded; exit 0; fi
+if [[ "${1:-}" == is-active ]]; then exit 3; fi
+exit 1
+FAKE_SYSTEMCTL
+chmod +x "$ROOT/fake-bin/systemctl"
+if PATH="$ROOT/fake-bin:$PATH" RA2_ADMIN_URL="http://127.0.0.1:19998" \
+  RA2_RELEASE_ROOT="$ROOT/releases-root" RA2_MAINTENANCE_ACK=YES \
+  bash server/deploy/release.sh rollback --apply >"$ROOT/emergency-block.log" 2>&1; then
+  echo "offline rollback accepted without emergency acknowledgement" >&2;exit 1
+fi
+PATH="$ROOT/fake-bin:$PATH" RA2_ADMIN_URL="http://127.0.0.1:19998" \
+  RA2_RELEASE_ROOT="$ROOT/releases-root" RA2_MAINTENANCE_ACK=YES RA2_EMERGENCY_ACK=YES \
+  bash server/deploy/release.sh rollback --apply >"$ROOT/emergency"
+[[ "$(readlink -f "$ROOT/releases-root/current")" == *"smoke-v2" ]] ||
+  { echo "offline rollback did not select previous release" >&2;exit 1; }
+echo "PASS: health, operator auth, metrics, dry-run, staging, bootstrap, rollback and offline recovery"
