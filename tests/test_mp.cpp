@@ -862,3 +862,16 @@ TEST_CASE("mp: W9-03-11 LAN lobby presence / chat codec") {
     const auto bd = encode_beacon(LanBeacon{});
     CHECK_FALSE(decode_lobby_msg(bd.data(), bd.size(), back));
 }
+
+TEST_CASE("mp: reconnect clears queued Internet lobby notifications") {
+    ServerLink link;
+    link.events().push_back(ServerEvent{ServerEvent::Rooms});
+    link.events().push_back(ServerEvent{ServerEvent::Joined});
+    CHECK(link.events().size() == 2);
+    link.close();
+    CHECK(link.events().empty());
+    CHECK(link.rooms().empty());
+    CHECK(link.server_name().empty());
+    CHECK(link.motd().empty());
+    CHECK(link.state() == ServerLink::State::Idle);
+}
