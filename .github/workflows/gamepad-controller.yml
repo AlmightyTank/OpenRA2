@@ -37,7 +37,7 @@ jobs:
         run: |
           c++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic \
             -Ithird_party -Iengine \
-            tests/test_main.cpp tests/test_gamepad_registry.cpp tests/test_gamepad_cursor.cpp \
+            tests/test_main.cpp tests/test_gamepad_registry.cpp tests/test_gamepad_cursor.cpp tests/test_shell_text_fit.cpp \
             -o /tmp/ra2-gamepad-tests
       - name: Execute controller and cursor tests
         run: /tmp/ra2-gamepad-tests --test-case="gamepad*"
