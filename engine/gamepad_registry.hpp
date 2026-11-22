@@ -3,6 +3,7 @@
 // The first connected supported controller owns input. On removal, ownership
 // moves to the next still-connected device. Duplicate additions are ignored.
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -12,7 +13,7 @@ public:
     using Id = int32_t;
     static constexpr Id none = -1;
     Id active() const { return active_; }
-    size_t count() const { return ids_.size(); }
+    std::size_t count() const { return ids_.size(); }
     bool contains(Id id) const {
         return std::find(ids_.begin(), ids_.end(), id) != ids_.end();
     }
