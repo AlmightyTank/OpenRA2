@@ -1,0 +1,29 @@
+# Production-like Compose example for a dedicated OpenRA2 lobby host.
+# Mutually exclusive with the systemd unit on the same ports.
+# This is NOT deployed or executed by CI.
+services:
+  ra2lobbyd:
+    image: ${RA2_IMAGE:?Set a verified immutable image reference including @sha256:digest}
+    network_mode: host
+    user: "65534:65534"
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    restart: on-failure
+    stop_grace_period: 15s
+    environment:
+      RA2_LISTEN: "${RA2_LISTEN:-:50000}"
+      RA2_V3: "${RA2_V3:-:50001}"
+      RA2_RELAY_PORTS: "${RA2_RELAY_PORTS:-50100-50999}"
+      RA2_ADMIN: "127.0.0.1:8080"
+      RA2_SERVER_NAME: "${RA2_SERVER_NAME:-OpenRA2 Multiplayer}"
+      RA2_MOTD: "${RA2_MOTD:-Welcome commander}"
+      # Do not expose the dashboard token via CLI flags or put it in Git.
+      # For full remote dashboards prefer the systemd EnvironmentFile route.
+      RA2_ADMIN_TOKEN: "${RA2_ADMIN_TOKEN:-}"
+# Use only a prebuilt image pinned by digest after signature/checksum review.
+# Run docker compose config first; deploying is an operator-approved action.

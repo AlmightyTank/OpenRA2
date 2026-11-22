@@ -55,6 +55,9 @@ public:
 
     // Tunnel keep-alive (every 5 s) + ping; call every frame (cheap).
     void tick(std::uint64_t now);
+    // Immediately refresh the current V3 endpoint after Android BACK or a
+    // network reconnect; never changes the tunnel id or lockstep state.
+    void refresh_tunnel(std::uint64_t now);
 
 private:
     std::unique_ptr<ra2::net::UdpDatagramIO> udp_;

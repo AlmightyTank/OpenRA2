@@ -1,0 +1,48 @@
+# S0.1F sample Prometheus alert rules, not installed by OpenRA2.
+# Configure a local scrape job named openra2-lobby for 127.0.0.1:8080.
+groups:
+  - name: openra2-lobby
+    interval: 30s
+    rules:
+      - alert: OpenRA2LobbyUnavailable
+        expr: up{job="openra2-lobby"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: OpenRA2 lobby metrics endpoint unavailable
+          description: Verify the ra2lobbyd service and local /healthz endpoint before restarting; check whether matches are active.
+      - alert: OpenRA2LobbyMetricsMissing
+        expr: absent(ra2lobbyd_rooms{job="openra2-lobby"})
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: OpenRA2 lobby room metrics are missing
+      - alert: OpenRA2LobbyHighV3DropRatio
+        expr: |
+          (
+            sum by (instance) (increase(ra2lobbyd_v3_dropped_total{job="openra2-lobby"}[5m]))
+            /
+            clamp_min(
+              sum by (instance) (increase(ra2lobbyd_v3_forwarded_total{job="openra2-lobby"}[5m]))
+              + sum by (instance) (increase(ra2lobbyd_v3_dropped_total{job="openra2-lobby"}[5m])),
+              1
+            )
+          ) > 0.10
+          and
+          sum by (instance) (increase(ra2lobbyd_v3_dropped_total{job="openra2-lobby"}[5m])) > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: OpenRA2 lobby UDP V3 drop ratio above 10%
+          description: Review traffic patterns, connection limits and player-impact reports; V3 drops can include malformed or abusive traffic.
+      - alert: OpenRA2LobbyHighJoinFailures
+        expr: increase(ra2lobbyd_join_failures_total{job="openra2-lobby"}[5m]) > 25
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: OpenRA2 lobby has elevated join failures
+          description: Check version mismatches, full rooms, and rate limits before treating this as a server outage.

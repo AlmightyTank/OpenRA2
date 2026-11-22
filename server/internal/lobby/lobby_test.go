@@ -70,7 +70,7 @@ func (c *tc) expect(typ string) Msg {
 }
 
 func hello(nick string) Msg {
-	return Msg{T: "hello", Magic: Magic, Proto: 1, Ver: "0.9.0", Sim: 1, Rules: "1234abcd", Plat: 1,
+	return Msg{T: "hello", Magic: Magic, Proto: ProtoMin, Ver: "0.9.0", Sim: 1, Rules: "1234abcd", Plat: 1,
 		PID: NewPID(), Nick: nick}
 }
 
@@ -144,7 +144,7 @@ func TestRoomFlowAddressExchange(t *testing.T) {
 	host := dial(t, addr)
 	host.send(hello("Host"))
 	ok := host.expect("hello_ok")
-	if ok.Server != "Test" || ok.MOTD != "hi" || ok.V3Port != 50001 || ok.ProtoLo != 1 {
+	if ok.Server != "Test" || ok.MOTD != "hi" || ok.V3Port != 50001 || ok.ProtoLo != ProtoMin {
 		t.Fatalf("hello_ok %+v", ok)
 	}
 	host.send(Msg{T: "create", Name: "Friday", Max: 4, Map: "Tour of Egypt", V3: 0xAAAA0001})
@@ -344,4 +344,19 @@ func TestHTTPOnSamePort(t *testing.T) {
 	c := dial(t, addr)
 	c.send(hello("X"))
 	c.expect("hello_ok")
+}
+
+ 
+func TestAndroidAwayGraceIdleTimeout(t *testing.T) {
+    srv := New(Config{})
+    // A phone suspended during a lobby has a 90s AWAY grace but cannot send
+    // pings until the app resumes. Do not close its host room at 60s.
+    if srv.cfg.IdleTimeout < 110*time.Second {
+        t.Fatalf("default idle timeout %v shorter than Android AWAY recovery window", srv.cfg.IdleTimeout)
+    }
+    // Explicit operator-provided shorter settings remain honored.
+    customized := New(Config{IdleTimeout: 35*time.Second})
+    if customized.cfg.IdleTimeout != 35*time.Second {
+        t.Fatalf("explicit idle override not honored: %v", customized.cfg.IdleTimeout)
+    }
 }

@@ -266,3 +266,148 @@ After `joined`/`peer`, host and guest send UDP to `server:v3_port` with the
 CnCNet V3 header `[u32 sender LE][u32 receiver LE]`. The payload is the
 in-room lobby, which uses the original game's 0x1236 global-channel framing
 (see `engine/mp/lobby_wire.hpp`), and later the game itself.
+
+
+## OpenRA2 central multiplayer hub (Option A / S0.1)
+
+This project uses **one** `ra2lobbyd` process for multiple simultaneous
+player-hosted Red Alert 2 matches. Each host runs the simulation locally;
+the server hosts the public/private room directory, forwards join notifications,
+and relays UDP traffic. **The server does not run headless game simulations**,
+keep a match alive after the host leaves, or save/restore match state.
+
+### Concurrent-match safeguards
+
+- Every live room has its own random code; private rooms are code-only.
+- V3 UDP tunnel IDs are reserved across **all** rooms (the tunnel is global),
+  not just within one room. A collision reports `v3_taken`.
+- The live room occupancy is the larger of the host-reported player count and
+  actually connected host/guest sockets, preventing simultaneous join attempts
+  from exceeding the room's human-player limit.
+- Repeated joins from the same connection are rejected as `already`.
+- Port-relay allocations are committed atomically with a successful join; a
+  failure leaves no phantom room member or reserved tunnel ID. Closing a room
+  releases its relays, even if guests keep their control-plane TCP connections.
+- Concurrent room creation and joining remain protected by the server mutex;
+  slow clients cannot make room-close notifications send to an already closed
+  outbound message channel.
+
+These are lobby-level protections; they do not authenticate arbitrary UDP
+CnCNet tunnel payloads, guarantee malicious clients cannot spoof other tunnel
+IDs, or provide encrypted game traffic. Additional protocol work is required
+before treating the relay as a strong security boundary.
+
+### Local verification
+
+No game assets are required for the Go lobby test suite:
+
+```sh
+cd server
+go test -count=1 ./...
+go test -race -count=1 ./...
+go vet ./...
+go build -o /tmp/ra2lobbyd ./cmd/ra2lobbyd
+```
+
+The server tests include three concurrent independent rooms (including a
+private room), collision protection between matches, parallel creation/join
+pressure, atomic rollback when relay ports are exhausted, and relay cleanup
+on room close. The dedicated GitHub Actions workflow is
+`.github/workflows/lobby-server.yml`.
+
+### Operator monitoring
+
+On the **localhost-only** admin endpoint (default `127.0.0.1:8080`),
+`GET /metrics` includes:
+
+- `ra2lobbyd_rooms` — total rooms
+- `ra2lobbyd_rooms_waiting` — rooms not started
+- `ra2lobbyd_rooms_started` — started rooms
+- `ra2lobbyd_rooms_private` — private rooms
+- `ra2lobbyd_participants_connected` — connected host/guest *room
+  participations*, not unique accounts or the host's reported AI slots
+
+Existing tunnel and rate/abuse metrics remain available. Do **not** expose the
+admin listener publicly; use SSH or private monitoring for operator access.
+A started room still requires the host to stay online; it is not a dedicated
+simulation process.
+
+### Deployment gate
+
+For this feature branch, do not deploy automatically or change any VPS ports
+or firewall rules. Before enabling public access, verify Go unit/race tests,
+desktop clients, Android-client/PC-client cross-play on real devices, room
+isolation while several matches run, relay bandwidth, and disconnect/rejoin
+behavior. Check domain/DNS and the host's existing services before choosing
+the actual deployment endpoint. These tests are not substitutes for the
+real-device multiplayer acceptance gate.
+
+
+## S0.1B — Internet room browser (client)
+
+The Internet menu now shows a searchable directory with local-only filters.
+The existing `ra2lobbyd` JSON-lines protocol is unchanged and older clients
+can continue to use the same server.
+
+- **Search** matches room name, map name, host nickname, and room code
+  (case-insensitive ASCII search). It does not search private rooms.
+- **All** shows every public room, with rooms you can join sorted first.
+- **Open** shows rooms with at least one available seat that have not started.
+- **Joinable** additionally requires the same simulation build and effective
+  game-data checksum. The in-room host still enforces platform policy; a
+  matching build/data **does not guarantee** that experimental mixed-platform
+  matches are allowed.
+- **Refresh** requests the directory on demand; the client also refreshes
+  automatically every five seconds. `F5` refreshes with a keyboard.
+- Select a room with touch, mouse, or Up/Down; use **Join Game** (or Enter)
+  to join. The selected room stays selected across directory reordering using
+  its stable six-character room code. If the room disappears or is filtered
+  out, selection is cleared instead of silently moving to another room.
+- Full/started/version-mismatched rooms are labeled and cannot be joined
+  through the **Join Game** button. **Join Code** continues to support
+  private rooms and reports server rejections directly.
+- The browser displays the chosen room's host, map and seat count, and
+  indicates how many of the server's public rooms match the current view.
+
+The room browser's search/sort/filter/selection logic lives in the SDL-free
+`engine/mp/room_browser.hpp`, with unit tests in
+`tests/test_room_browser.cpp`. The actual 640x480 shell controls are in
+`engine/mp_pages.inc` and retain the shared touch-list scrolling behavior.
+
+### Acceptance checks before public release
+
+1. Connect to a real `ra2lobbyd` using Windows and Android clients.
+2. Host at least three independent public/private matches simultaneously.
+3. Search by room name, map, host and code; verify a private room is never
+   visible in the public list but is joinable by code.
+4. Start/fill a room; confirm Open and Joinable remove it on refresh, while
+   All labels it as non-joinable.
+5. Change room order between refreshes; confirm the Join action still targets
+   the selected **code**, never the old row index.
+6. Try incompatible engine/data clients and verify the browser warning
+   and server-side version/rejection messages.
+7. Validate keyboard Up/Down/Enter/F5, Android touch, long-press/paste into
+   room-code/search boxes, scroll strips and small screens.
+8. Run C++ browser tests and the full native game build in
+   `.github/workflows/online-browser.yml`. Go server race tests remain in
+   `.github/workflows/lobby-server.yml`.
+
+**Deployment:** none. Do not change master, VPS services or firewall ports
+until the above checks pass.
+
+
+### S0.1E — Protected operator dashboard
+
+The self-hosted Go daemon now includes an **opt-in local administration UI**
+at `http://127.0.0.1:8080/admin/`. Set a random secret of at least
+32 bytes using the `RA2_ADMIN_TOKEN` environment variable to enable
+it; when unset, the dashboard is disabled. The admin listener must
+remain bound to loopback, including when SSH forwarding is used.
+
+The dashboard shows public/private rooms, connected host/guest display names,
+per-room status and relay health. An operator can close **waiting** rooms
+after confirmation; **started** rooms are read-only because the lobby
+directory does not own their game simulation.
+
+Full security design, endpoint details, regression tests and safe local
+setup: [S0.1E Administration Dashboard](S0.1E-ADMIN-DASHBOARD.md).

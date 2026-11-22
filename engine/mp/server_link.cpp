@@ -49,8 +49,16 @@ bool ServerLink::connect(const std::string& address, const ServerHello& hello) {
 void ServerLink::close() {
     tcp_.close();
     state_ = State::Idle;
+    // Reconnecting must not replay notifications from the previous server,
+    // especially a delayed "joined" or "rooms" event from the old session.
     rooms_.clear();
+    events_.clear();
     err_.clear();
+    name_.clear();
+    motd_.clear();
+    public_ip_.clear();
+    v3_port_ = 0;
+    last_ping_ = started_ = 0;
 }
 
 void ServerLink::send(const std::string& line) { tcp_.send(line + "\n"); }

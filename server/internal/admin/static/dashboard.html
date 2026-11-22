@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>OpenRA2 — Server Operations</title>
+  <link rel="stylesheet" href="/admin/dashboard.css">
+  <script defer src="/admin/dashboard.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><div class="brand-mark" aria-hidden="true">R2</div><div><strong>OpenRA2</strong><span>SERVER OPERATIONS</span></div></div>
+    <div class="top-actions"><span class="local-only">LOCAL ADMIN CONSOLE</span><button type="button" class="secondary" id="lock" hidden>Lock console</button></div>
+  </header>
+  <div class="shell">
+    <aside class="side">
+      <div class="eyebrow">OPERATIONS</div>
+      <nav aria-label="Dashboard sections">
+        <a href="#overview">Overview</a>
+        <a href="#matches">Matches</a>
+        <a href="#health">Network health</a>
+      </nav>
+      <div class="sidebar-foot"><span class="dot"></span> One lobby · independent player-hosted games<br>Use an SSH tunnel for remote administration.</div>
+    </aside>
+    <div class="main">
+      <section id="login-panel" class="login" aria-labelledby="login-title">
+        <div class="eyebrow">RESTRICTED ACCESS</div>
+        <h1 id="login-title">Server operations</h1>
+        <p>This panel is available only through the server’s local admin listener. Enter the operator token to read live room data and manage waiting rooms.</p>
+        <form id="login-form" autocomplete="off">
+          <label for="token">Operator token</label>
+          <input id="token" name="admin-token" type="password" required minlength="32" autocomplete="off" spellcheck="false" placeholder="Paste RA2_ADMIN_TOKEN">
+          <button type="submit" class="primary">Unlock dashboard</button>
+        </form>
+        <p id="login-error" class="error" role="alert" hidden></p>
+        <p class="microcopy">The token stays only in this tab’s memory. No cookies, local storage, or third-party assets.</p>
+      </section>
+      <main id="dashboard" hidden>
+        <div class="page-head" id="overview">
+          <div><div class="eyebrow">LIVE ENVIRONMENT</div><h1>Multiplayer overview</h1><p class="subdued">Room directory, player-hosted games and relay activity.</p></div>
+          <div class="head-actions"><span class="health-pill"><span class="dot"></span><span id="connection-label">Connected</span></span><button class="secondary" id="refresh" type="button">Refresh now</button></div>
+        </div>
+        <p class="error" id="dashboard-error" role="alert" hidden></p>
+        <section class="cards" aria-label="Live statistics">
+          <article class="stat"><span>LIVE ROOMS</span><strong id="rooms-total">—</strong><small>Across all game sessions</small></article>
+          <article class="stat"><span>IN PROGRESS</span><strong id="rooms-started">—</strong><small>Matches marked started</small></article>
+          <article class="stat"><span>WAITING</span><strong id="rooms-waiting">—</strong><small>Rooms accepting players</small></article>
+          <article class="stat"><span>CONNECTED PLAYERS</span><strong id="participants-total">—</strong><small>Room connections, not accounts</small></article>
+        </section>
+        <section class="panel" id="matches" aria-labelledby="matches-title">
+          <div class="panel-head">
+            <div><h2 id="matches-title">Multiplayer rooms</h2><p>Public and private rooms. Active games are view-only.</p></div>
+            <div class="filters">
+              <label for="room-filter">Show</label>
+              <select id="room-filter"><option value="all">All rooms</option><option value="waiting">Waiting</option><option value="started">In progress</option><option value="private">Private</option></select>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table><thead><tr><th>ROOM / HOST</th><th>STATUS</th><th>PLAYERS</th><th>MAP</th><th>TYPE</th><th>MANAGE</th></tr></thead><tbody id="room-rows"></tbody></table>
+          </div>
+          <div class="empty" id="rooms-empty" hidden>No rooms match this filter.</div>
+          <p class="note">Closing a waiting room removes its lobby entry and notifies participants. It does not forcibly end an already running lockstep match.</p>
+        </section>
+        <section id="health" class="panel" aria-labelledby="health-title">
+          <div class="panel-head"><div><h2 id="health-title">Network health</h2><p>Aggregate counters; no IP addresses or player identifiers exposed.</p></div><span class="tiny" id="updated">—</span></div>
+          <dl class="metrics">
+            <div><dt>V3 endpoints</dt><dd id="v3-clients">—</dd></div>
+            <div><dt>Forwarded V3 packets</dt><dd id="v3-forwarded">—</dd></div>
+            <div><dt>Dropped V3 packets</dt><dd id="v3-dropped">—</dd></div>
+            <div><dt>V3 bytes relayed</dt><dd id="v3-bytes">—</dd></div>
+            <div><dt>Lobby connections total</dt><dd id="connections-total">—</dd></div>
+            <div><dt>Joins / join failures</dt><dd id="joins-total">—</dd></div>
+            <div><dt>Port relay allocations</dt><dd id="relay-allocations">—</dd></div>
+            <div><dt>Server uptime</dt><dd id="uptime">—</dd></div>
+          </dl>
+        </section>
+        <footer class="foot">OpenRA2 multiplayer operations · Local access only · No user IP addresses are displayed</footer>
+      </main>
+    </div>
+  </div>
+</body>
+</html>
