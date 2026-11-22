@@ -28,6 +28,14 @@ public:
     int x() const { return x_; }
     int y() const { return y_; }
 
+    // Keep cursor position while a modal page owns input. Discard residual
+    // fractions and stale elapsed time so resuming cannot cause drift or jumps.
+    void suspend(uint32_t now_ms) {
+        last_ms_ = now_ms;
+        started_ = true;
+        cursor_fx_ = cursor_fy_ = pan_fx_ = pan_fy_ = 0.0f;
+    }
+
     // SDL axes are signed 16-bit; preserve the negative endpoint.
     static float axis(int value, int deadzone = 8000) {
         value = std::max(-32768, std::min(32767, value));
