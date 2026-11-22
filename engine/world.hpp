@@ -222,6 +222,7 @@ struct Unit {
     int cargo_of = -1;           // >=0: index of the transport carrying this
                                  // unit -- the unit is OFF-MAP (spec §4)
     int enter_target = -1;       // pending enter order -> transport index
+    int grinder_target = -1;     // Yuri Grinder entry order -> building index
     bool unload_pending = false; // pending unload order on this transport
     int eject_counter = 0;       // eject_cell scatter-side alternator (+/-90 deg
                                  // by low bit), bumped once per eject
@@ -1298,6 +1299,9 @@ public:
     // (x, y), set the mission to MoveToOre, and emit the path immediately
     // via order_unit_move (mirrors step()'s own HarvestMove handling).
     void group_harvest(int issuer, const std::vector<int>& ids, int x, int y);
+    // Route owned ground units into their own Yuri Grinder for a cash refund.
+    bool is_yuri_grinder(int building_index) const;
+    void group_grind(int issuer, const std::vector<int>& ids, int building_index);
     // ReturnToRef now (resets harv_timer -- every transition into
     // ReturnToRef resets it; see harvest.cpp's ChronoOut-fires-once comment).
     void group_return(int issuer, const std::vector<int>& ids);
@@ -3142,6 +3146,7 @@ private:
     std::vector<std::uint64_t> yuri_slave_spawn_at_;
     std::vector<int> yuri_slave_prev_alive_;
     void step_yuri_slave_mining();
+    void step_yuri_grinders();
 
     // --- Repair & Sell phase [RE: repair-sell.md] -------------------------
     // ALL inert by default. repair_sell_any_ is opened ONLY by set_repair
