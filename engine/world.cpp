@@ -1506,6 +1506,69 @@ void World::step_yuri_slave_mining() {
     }
 }
 
+bool World::is_yuri_grinder(int bi) const {
+    const auto& bt = btypes();
+    if (bi < 0 || bi >= static_cast<int>(buildings_.size())) return false;
+    const Building& b = buildings_[static_cast<std::size_t>(bi)];
+    return b.alive && b.state == Building::State::Idle &&
+           b.type >= 0 && b.type < static_cast<int>(bt.size()) &&
+           bt[static_cast<std::size_t>(b.type)].id == "YAGRND";
+}
+
+void World::group_grind(int issuer, const std::vector<int>& ids, int bi) {
+    if (!is_yuri_grinder(bi)) return;
+    const Building& b = buildings_[static_cast<std::size_t>(bi)];
+    if (b.house != issuer) return;
+    for (int ui : ids) {
+        if (ui < 0 || ui >= static_cast<int>(units_.size())) continue;
+        Unit& u = units_[static_cast<std::size_t>(ui)];
+        if (!u.alive || u.die_time >= 0.0 || u.deployed_away ||
+            u.house != issuer || u.is_aircraft || u.cargo_of >= 0) continue;
+        int target_x = u.cell_x, target_y = u.cell_y;
+        int best_dist = 0x7fffffff;
+        for (int y = b.cy - 1; y <= b.cy + b.fh; ++y)
+            for (int x = b.cx - 1; x <= b.cx + b.fw; ++x) {
+                if (x >= b.cx && x < b.cx + b.fw &&
+                    y >= b.cy && y < b.cy + b.fh) continue;
+                if (!walkable(x, y)) continue;
+                const int occupied = unit_at_cell(x, y);
+                if (occupied >= 0 && occupied != ui) continue;
+                const int d = std::max(std::abs(u.cell_x - x), std::abs(u.cell_y - y));
+                if (d < best_dist) { best_dist = d; target_x = x; target_y = y; }
+            }
+        if (best_dist == 0x7fffffff) continue;
+        order_unit_move(ui, target_x, target_y);
+        units_[static_cast<std::size_t>(ui)].grinder_target = bi;
+    }
+}
+
+// The existing MegaMission Enter route feeds a Grinder through group_grind;
+// the unit is consumed ONLY on arrival at a friendly, operational Grinder.
+// Credits enter the same wallet used by ore and normal production.
+void World::step_yuri_grinders() {
+    for (int ui = 0; ui < static_cast<int>(units_.size()); ++ui) {
+        Unit& u = units_[static_cast<std::size_t>(ui)];
+        const int bi = u.grinder_target;
+        if (bi < 0) continue;
+        if (!u.alive || u.die_time >= 0.0 || u.deployed_away || !is_yuri_grinder(bi) ||
+            u.house != buildings_[static_cast<std::size_t>(bi)].house) {
+            u.grinder_target = -1;
+            continue;
+        }
+        const Building& b = buildings_[static_cast<std::size_t>(bi)];
+        const int dx = u.cell_x < b.cx ? b.cx - u.cell_x :
+                       u.cell_x >= b.cx + b.fw ? u.cell_x - (b.cx + b.fw - 1) : 0;
+        const int dy = u.cell_y < b.cy ? b.cy - u.cell_y :
+                       u.cell_y >= b.cy + b.fh ? u.cell_y - (b.cy + b.fh - 1) : 0;
+        if (dx > 1 || dy > 1) continue;
+        const int house = u.house;
+        const int cost = std::max(0, u.vet.cost);
+        u.grinder_target = -1;
+        consume_unit(ui);
+        deposit_credits(house, static_cast<double>(cost) * 0.5);
+    }
+}
+
 void World::group_harvest(int issuer, const std::vector<int>& ids, int x, int y) {
     for (int i : ids) {
         if (i < 0 || i >= static_cast<int>(units_.size())) continue;
@@ -6044,6 +6107,7 @@ void World::step(double dt) {
     // -- no existing unit-step logic is reordered; `if (!cargo_any_) return;`
     // inside is the only cost every existing demo pays [spec §8].
     step_cargo(dt);
+    step_yuri_grinders();   // friendly Yuri Grinders consume units on arrival
 
     // Engineer/Spy Capture [RE: capture.md §A5]: the capture-arrival pass --
     // an engineer with a live capture_target that has reached adjacency to its
