@@ -241,9 +241,25 @@ public:
             IE ev; ev.kind = IE::Key; ev.key = k; ev.t_ms = now_ms; handle(ev);
         };
         if (confirm_.open()) {
+            const int n = confirm_.button_count();
+            if (n <= 0) return;
+            bool moved = false;
+            if (gamepad_confirm_ix_ < 0 || gamepad_confirm_ix_ >= n) {
+                gamepad_confirm_ix_ = n - 1; // safest default
+                moved = true;
+            }
+            if (e.up || e.left) { gamepad_confirm_ix_ = (gamepad_confirm_ix_ + n - 1) % n; moved = true; }
+            if (e.down || e.right) { gamepad_confirm_ix_ = (gamepad_confirm_ix_ + 1) % n; moved = true; }
+            if (moved || e.accept) {
+                const ra2engine::SbRect d = confirm_.btn(gamepad_confirm_ix_);
+                IE ev; ev.kind = IE::PointerMove; ev.x = d.x + d.w / 2;
+                ev.y = d.y + d.h / 2; ev.t_ms = now_ms; handle(ev);
+                if (e.accept) { ev.kind = IE::PointerDown; ev.button = IE::Left; handle(ev); }
+            }
             if (e.cancel) key(ra2engine::kKeyEscape);
             return;
         }
+        gamepad_confirm_ix_ = -1;
         if (combo_ != CB_NONE) {
             if (e.up) key(ra2engine::kKeyUp);
             if (e.down) key(ra2engine::kKeyDown);
@@ -652,6 +668,7 @@ private:
     ra2engine::GamepadNav nav_;
     int32_t pad_id_ = -1;
     int button_focus_ = -1;
+    int gamepad_confirm_ix_ = -1;
     bool map_focus_ = false;
     Mode last_mode_ = MODE_SETUP;
     double clock_ = 0.0;
