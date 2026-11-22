@@ -344,12 +344,32 @@ public:
         // The confirmation owns input. No default "yes" controller button
         // (a held A during reconnect must never approve a destructive action).
         if (confirm_.open()) {
+            const int n = confirm_.button_count();
+            if (n <= 0) return;
+            bool moved = false;
+            if (gamepad_confirm_ix_ < 0 || gamepad_confirm_ix_ >= n) {
+                gamepad_confirm_ix_ = n - 1; // default Cancel, not Yes/Kick/Quit
+                moved = true;
+            }
+            if (nav.up || nav.left) { gamepad_confirm_ix_ = (gamepad_confirm_ix_ + n - 1) % n; moved = true; }
+            if (nav.down || nav.right) { gamepad_confirm_ix_ = (gamepad_confirm_ix_ + 1) % n; moved = true; }
+            if (moved || nav.accept) {
+                const ra2engine::SbRect d = confirm_.btn(gamepad_confirm_ix_);
+                E ev; ev.kind = E::PointerMove; ev.x = d.x + d.w / 2;
+                ev.y = d.y + d.h / 2; ev.t_ms = now_ms;
+                handle(ev);
+                if (nav.accept) {
+                    ev.kind = E::PointerDown; ev.button = E::Left;
+                    handle(ev);
+                }
+            }
             if (nav.cancel) {
                 E ev; ev.kind = E::Key; ev.key = ra2engine::kKeyEscape;
                 ev.t_ms = now_ms; handle(ev);
             }
             return;
         }
+        gamepad_confirm_ix_ = -1;
         const auto rows = buttons();
         std::vector<bool> enabled;
         for (const ShellButton& b : rows) enabled.push_back(b.enabled);
@@ -773,6 +793,7 @@ protected:
     ra2engine::GamepadNav gamepad_nav_;
     int32_t gamepad_pad_id_ = -1;
     int gamepad_button_ix_ = -1;
+    int gamepad_confirm_ix_ = -1;
     double clock_ = 0.0;
 #if defined(__ANDROID__) || defined(RA2_IOS)
     bool touch_seen_ = true;                 // W9-04-06: a phone starts in touch metrics
