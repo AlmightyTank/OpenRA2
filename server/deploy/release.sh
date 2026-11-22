@@ -3,7 +3,10 @@
 # stops, enables or restarts a service; production cutover is a separate
 # operator-authorized action after maintenance-window review.
 set -euo pipefail
-umask 027
+# A DynamicUser systemd service must traverse release directories owned
+# by root. Release packages contain only public binaries and checksums;
+# operator secrets live separately in /etc/openra2-lobby (mode 0600).
+umask 022
 
 usage() {
   cat <<'USAGE'
