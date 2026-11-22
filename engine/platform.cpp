@@ -1,6 +1,8 @@
 #include "platform.hpp"
 #include <algorithm>
 #include "touch_gestures.hpp"
+#include "gamepad_registry.hpp"
+#include <vector>
 
 #include <SDL.h>
 #include <cstdio>
@@ -15,6 +17,46 @@ struct Platform::Impl {
     int w = 0;
     int h = 0;
     TouchGestures touch;   // G-70 gesture layer (fed by SDL_FINGER*)
+    GamepadRegistry registry;
+    std::vector<SDL_GameController*> gamepads;
+    ~Impl() { clear_gamepads(); }
+    void clear_gamepads() {
+        for (auto* pad : gamepads) SDL_GameControllerClose(pad);
+        gamepads.clear(); registry.clear();
+    }
+    void add_gamepad(int device_index) {
+        if (device_index < 0 || !SDL_IsGameController(device_index)) return;
+        const SDL_JoystickID id = SDL_JoystickGetDeviceInstanceID(device_index);
+        if (id < 0 || registry.contains(id)) return;
+        SDL_GameController* pad = SDL_GameControllerOpen(device_index);
+        if (!pad) {
+            SDL_Log("[gamepad] open failed: %s", SDL_GetError());
+            return;
+        }
+        const SDL_JoystickID actual = SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad));
+        if (actual < 0 || !registry.add(actual)) { SDL_GameControllerClose(pad); return; }
+        gamepads.push_back(pad);
+        SDL_Log("[gamepad] connected: %s (instance=%d, active=%d)",
+                SDL_GameControllerName(pad), static_cast<int>(actual), static_cast<int>(registry.active()));
+    }
+    void remove_gamepad(SDL_JoystickID id) {
+        if (!registry.remove(id)) return;
+        for (auto it = gamepads.begin(); it != gamepads.end(); ++it) {
+            if (SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(*it)) == id) {
+                SDL_GameControllerClose(*it);
+                gamepads.erase(it);
+                break;
+            }
+        }
+        SDL_Log("[gamepad] disconnected: instance=%d, remaining=%d, active=%d",
+                static_cast<int>(id), static_cast<int>(registry.count()), static_cast<int>(registry.active()));
+    }
+    SDL_GameController* active_gamepad() const {
+        for (auto* pad : gamepads)
+            if (SDL_GameControllerGetAttached(pad) &&
+                SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad)) == registry.active()) return pad;
+        return nullptr;
+    }
     // W9-04-04: a phone returning from the background can deliver a mouse
     // event (no real mouse: the window corner) -- it switched the game to
     // mouse mode and edge-scrolled the map into the black. Mouse events are
@@ -61,6 +103,10 @@ Platform Platform::create(const char* title, int w, int h, bool hidden) {
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         throw std::runtime_error(SDL_GetError());
     }
+    // Optional controller subsystem: unavailable controller drivers must never
+    // prevent keyboard, touch or mouse play (including headless test runners).
+    if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) != 0)
+        SDL_Log("[gamepad] controller subsystem unavailable: %s", SDL_GetError());
 
     Uint32 flags = hidden ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN;
 #ifdef __ANDROID__
@@ -116,6 +162,9 @@ Platform Platform::create(const char* title, int w, int h, bool hidden) {
 
     Platform p;
     p.p_ = new Impl{window, renderer, w, h, TouchGestures{}};
+    if (SDL_WasInit(SDL_INIT_GAMECONTROLLER)) {
+        for (int index = 0; index < SDL_NumJoysticks(); ++index) p.p_->add_gamepad(index);
+    }
     p.p_->update_slop();
     return p;
 }
@@ -253,6 +302,26 @@ void key_event_from_sdl(int k, int mod, InputEvent& ev) {
     ev.kind = (ev.key || ev.vk) ? InputEvent::Key : InputEvent::None;
 }
 
+int Platform::gamepad_count() const {
+    return p_ ? static_cast<int>(p_->registry.count()) : 0;
+}
+
+GamepadState Platform::gamepad_state() const {
+    GamepadState s;
+    if (!p_) return s;
+    SDL_GameController* pad = p_->active_gamepad();
+    if (!pad) return s;
+    s.connected = true;
+    s.instance_id = SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad));
+    const char* name = SDL_GameControllerName(pad);
+    if (name) s.name = name;
+    for (int i = 0; i < static_cast<int>(s.axes.size()) && i < SDL_CONTROLLER_AXIS_MAX; ++i)
+        s.axes[static_cast<std::size_t>(i)] = SDL_GameControllerGetAxis(pad, static_cast<SDL_GameControllerAxis>(i));
+    for (int i = 0; i < SDL_CONTROLLER_BUTTON_MAX && i < 32; ++i)
+        if (SDL_GameControllerGetButton(pad, static_cast<SDL_GameControllerButton>(i))) s.buttons |= (1u << i);
+    return s;
+}
+
 bool Platform::touch_hold(int& x, int& y, float& progress) const {
     return p_ && p_->touch.hold_feedback(SDL_GetTicks(), x, y, progress);
 }
@@ -269,6 +338,24 @@ bool Platform::poll(InputEvent& ev) {
     }
 
     switch (e.type) {
+        case SDL_CONTROLLERDEVICEADDED:
+            p_->add_gamepad(e.cdevice.which); // SDL supplies a *device index* for additions
+            ev.kind = InputEvent::None;
+            break;
+        case SDL_CONTROLLERDEVICEREMOVED:
+            p_->remove_gamepad(e.cdevice.which); // removals use an *instance ID*
+            ev.kind = InputEvent::None;
+            break;
+        case SDL_CONTROLLERDEVICEREMAPPED:
+            SDL_Log("[gamepad] controller mapping updated: instance=%d", e.cdevice.which);
+            ev.kind = InputEvent::None;
+            break;
+        case SDL_CONTROLLERAXISMOTION:
+        case SDL_CONTROLLERBUTTONDOWN:
+        case SDL_CONTROLLERBUTTONUP:
+            // V0.1B only tracks physical state. No gameplay commands until v0.1C.
+            ev.kind = InputEvent::None;
+            break;
         case SDL_QUIT:
             ev.kind = InputEvent::Quit;
             break;
