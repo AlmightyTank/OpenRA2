@@ -1,4 +1,62 @@
-# Android Gamepad Support — v0.1B (Detection / Hotplug)
+# Android Gamepad Support — v0.1B / v0.1C
+
+## v0.1C: analog camera and virtual cursor
+
+**Implementation:** committed to `feature/android-gamepad-v0.1`; complete-source
+Android/desktop builds and real hardware testing are **not yet verified**.
+
+- Left analog stick pans the existing tactical camera via `Input::pan()`.
+  Pushing right moves the viewing position right (map pixels shift left).
+- Right analog stick navigates a virtual cursor using the **existing**
+  `GamepadCursor` C++17 module. Pointer movement is fed through
+  `GameScene::handle(InputEvent::PointerMove)`; no SDL synthetic mouse
+  injection, clicks or network command changes.
+- Virtual cursor gets a visible cyan-green reticle, independent of
+  MOUSE.SHP availability. The OS cursor is hidden while the controller is
+  actively steering; physical touch/mouse regains pointer control immediately.
+- Axes have dead zones, fractional pixel accumulation, screen-edge bounds,
+  50 ms frame-delta capping, and logical-canvas resize support.
+- Controller motion stops in options/load dialogs, briefing, trigger movies,
+  abort confirmation, locked-input phases, multiplayer chat/reconnect/end.
+  Closing a modal page discards stale time and fractions to avoid jumps.
+- The controller-specific event update only runs during **real interactive**
+  platform sessions. Scripted play, fixed-timestep gates, replay and
+  raw-input recording are left deterministic and do not sample live gamepads.
+  No camera/UI state is written into the replicated World simulation.
+- When a controller disconnects, virtual cursor ownership is released to
+  avoid unintended screen-edge camera scrolling.
+- Analog sticks only: selecting/commanding units and gamepad menu navigation
+  are **v0.1D+**, not claimed by this slice.
+
+### v0.1C regression tests
+
+`tests/test_gamepad_cursor.cpp` is included in `ra2assets_tests` and covers
+positive/negative axes, dead zone thresholds, camera-vs-cursor isolation,
+viewport bounds and resizing, suspend/resume behavior, large frame stalls,
+and subpixel movement accumulation.
+
+```sh
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build --target ra2assets_tests
+./build/ra2assets_tests --test-case="gamepad cursor*"
+ctest --test-dir build --output-on-failure
+cd android && ./gradlew assembleDebug
+```
+
+### v0.1C on-device acceptance (not yet verified)
+
+1. Start skirmish with an Xbox / PlayStation / mapped generic controller.
+2. Move left stick each direction; verify camera responds smoothly and stops at dead zone.
+3. Move right stick each direction; verify a visible, bounded reticle and no camera drift.
+4. Open options while moving sticks: camera and cursor freeze; close without jump.
+5. Switch to touch/mouse: pointer and existing gestures continue to work.
+6. Disconnect/reconnect mid-match; confirm no stale edge scrolling or cursor jump.
+7. Verify logical view scaling across phone/tablet aspect ratios.
+8. Regress desktop mouse/keyboard, touch gestures, campaign and multiplayer.
+
+---
+
+## v0.1B detection / hotplug baseline
 
 ## Scope
 
@@ -75,9 +133,8 @@ cd android
 **Verification status:** GitHub source committed; desktop/full Android builds
 and real controller hardware checks are not yet verified in this environment.
 
-## Next: v0.1C
+## Next: v0.1D
 
-Poll `Platform::gamepad_state()` once per scene frame, feed the SDL-free
-GamepadCursor, emit cursor motion/camera pan through the scene's existing
-input routes, draw a virtual cursor, and pause movement during modal UI.
-Avoid feeding controller axes through keyboard events or touching World state.
+Add controller-button selection/commands without replacing the existing input
+model. Make production/navigation controller-friendly in later slices. Prioritize
+real Android builds and on-device testing before claiming release readiness.
