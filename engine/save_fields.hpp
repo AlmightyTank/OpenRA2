@@ -1163,6 +1163,7 @@ template <class Ar> void fields(Ar& ar, Unit& v) {
     io(ar, v.cargo);
     io(ar, v.cargo_of);
     io(ar, v.enter_target);
+    io(ar, v.grinder_target);  // Yuri v0.2B entry-order state (save v48)
     io(ar, v.unload_pending);
     io(ar, v.eject_counter);
     // aircraft
