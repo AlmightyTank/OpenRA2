@@ -64,19 +64,14 @@ struct ShellPainter {
         const ra2assets::Font& f = *art.font;
         // 12metfnt cell = 16 px; snap to an integer glyph scale (fractional
         // nearest-neighbour scaling visibly mangles the 1-px bevel strokes).
-        const double wanted = std::max(1.0, std::round(xf.s * logical_px / 16.0));
+        const double sc = std::max(1.0, std::round(xf.s * logical_px / 16.0));
         const SDL_Rect box = dev(lx, ly, lw, lh);
-        // Shared P8 shell controls (Options, Skirmish, lobby, popup, menus):
-        // fit glyphs to their control without a 2x -> 1x cliff and preserve
-        // contrast even on red or animated SHP backgrounds.
-        const int pad = std::min(4, std::max(1, box.w / 12));
-        const auto fit = ra2engine::fit_shell_text(fnt_text_width(f, s), f.height(),
-                                                   box.x, box.y, box.w, box.h,
-                                                   wanted, pad, 1);
-        double tx = box.x + pad;
-        if (align == 1) tx = fit.x;
-        else if (align == 2) tx = box.x + box.w - pad - fit.width;
-        draw_fnt_text_readable(ren, tc, f, *pal, s, tx, fit.y, keypfx, fit.scale);
+        const double tw = fnt_text_width(f, s) * sc;
+        const double th = f.height() * sc;
+        double tx = box.x;
+        if (align == 1) tx = box.x + (box.w - tw) / 2.0;
+        else if (align == 2) tx = box.x + box.w - tw;
+        draw_fnt_text_f(ren, tc, f, *pal, s, tx, box.y + (box.h - th) / 2.0, keypfx, sc);
     }
     // Yellow control text (dark red when disabled).
     void label(const std::string& s, int x, int y, int w, int h, int align, bool en = true) const {

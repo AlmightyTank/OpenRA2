@@ -93,7 +93,6 @@ static char* ra2_cli_pref_path() {
 #include <optional>
 #include "production.hpp"
 #include "rectfont.hpp"    // glyph_rows (5x7 rect-font for menu labels) [Task 5]
-#include "shell_text_fit.hpp"  // v0.1E: bounded, fractional-readable shell label layout
 #include "repair_sell.hpp" // RepairSellRules (Repair & Sell phase)
 #include "settings.hpp"    // P8 Options: RA2.INI settings, slider math, edge-scroll table
 #include "save_fields.hpp"  // P7 Save/Load: archive + visitors + SceneSave
@@ -5069,14 +5068,11 @@ SDL_Texture* shp_frame_tex(ra2engine::TextureCache& tc, const std::string& key,
 ra2assets::Palette make_font_palette() {
     ra2assets::Palette p;
     for (int i = 0; i < 256; ++i) {
-        // The original dark shade ramp (index 1 -> 95) disappeared into the
-        // saturated red button glow. Keep the warm RA2 metallic bevel but
-        // lift every nontransparent stroke into a legible ivory-gold range.
-        if (i == 0) p[i] = ra2assets::Rgba{0, 0, 0, 0};
-        else if (i == 1) p[i] = ra2assets::Rgba{183, 133, 67, 255};
-        else if (i == 2) p[i] = ra2assets::Rgba{238, 190, 96, 255};
-        else if (i == 3) p[i] = ra2assets::Rgba{255, 223, 145, 255};
-        else p[i] = ra2assets::Rgba{255, 242, 190, 255};
+        int lvl = 40 + i * 55;                 // 1->95, 2->150, 3->205, 4->255...
+        if (lvl > 255) lvl = 255;
+        p[i] = ra2assets::Rgba{static_cast<uint8_t>(lvl),
+                               static_cast<uint8_t>(lvl * 92 / 100),
+                               static_cast<uint8_t>(lvl * 55 / 100), 255};
     }
     p[0] = ra2assets::Rgba{0, 0, 0, 0};        // (never used: idx 0 = transparent)
     return p;
@@ -5087,9 +5083,8 @@ ra2assets::Palette make_font_palette() {
 ra2assets::Palette make_font_palette_tinted(int r, int g, int b) {
     ra2assets::Palette p;
     for (int i = 0; i < 256; ++i) {
-        // Shell controls need strong yellow highlights at small sizes, not
-        // barely visible dark ramp pixels on red/metal art.
-        int lvl = std::min(255, 135 + i * 28);
+        int lvl = 40 + i * 55;
+        if (lvl > 255) lvl = 255;
         p[i] = ra2assets::Rgba{static_cast<uint8_t>(r * lvl / 255),
                                static_cast<uint8_t>(g * lvl / 255),
                                static_cast<uint8_t>(b * lvl / 255), 255};
@@ -5187,88 +5182,6 @@ void draw_fnt_text_f(SDL_Renderer* ren, ra2engine::TextureCache& tc, const ra2as
             }
         }
         cx += (w > 0 ? w : font.height() / 2) * scale;
-    }
-}
-
-// v0.1E: one textured draw per outlined glyph. The 12METFNT indexed shade
-// ramp is retained, but a solid, one-SOURCE-pixel dark contour is baked around
-// each glyph. This avoids 8-9 extra SDL draw calls per letter every frame and
-// preserves crisp strokes on phone-sized, non-integer letterboxed displays.
-// Key namespace includes palette role (shf:/opy:/oph:) and upscale factor.
-SDL_Texture* fnt_readable_glyph_tex(SDL_Renderer* ren, ra2engine::TextureCache& tc,
-                                    const std::string& key, const ra2assets::FntGlyph& glyph,
-                                    const ra2assets::Palette& pal, double scale) {
-    float sx = 1.0f, sy = 1.0f;
-    SDL_RenderGetScale(ren, &sx, &sy);
-    const double mag = scale * std::max(sx, sy);
-    const int n = static_cast<int>(std::ceil(mag - 1e-3));
-    const int k = n > 1 && std::fabs(mag - std::lround(mag)) >= 1e-3
-                ? std::min(n, 8) : 1;
-    const std::string skey = "read:" + key + "@x" + std::to_string(k);
-    if (auto* tex = static_cast<SDL_Texture*>(tc.peek(skey))) return tex;
-    const int w = glyph.w + 2, h = glyph.h + 2;
-    std::vector<ra2assets::Rgba> base(static_cast<std::size_t>(w) * h,
-                                     ra2assets::Rgba{0, 0, 0, 0});
-    // Complete silhouette, including bevel/low-shade pixels. Outline never
-    // covers the face; face pixels are placed after the dilated dark mask.
-    for (int gy = 0; gy < glyph.h; ++gy) {
-        for (int gx = 0; gx < glyph.w; ++gx) {
-            const uint8_t v = glyph.pixels[static_cast<std::size_t>(gy) * glyph.w + gx];
-            if (!v) continue;
-            for (int dy = -1; dy <= 1; ++dy)
-                for (int dx = -1; dx <= 1; ++dx)
-                    base[static_cast<std::size_t>(gy + 1 + dy) * w + gx + 1 + dx] =
-                        ra2assets::Rgba{8, 5, 3, 244};
-        }
-    }
-    for (int gy = 0; gy < glyph.h; ++gy) {
-        for (int gx = 0; gx < glyph.w; ++gx) {
-            const uint8_t v = glyph.pixels[static_cast<std::size_t>(gy) * glyph.w + gx];
-            if (!v) continue;
-            auto face = pal[v];
-            face.a = 255;
-            base[static_cast<std::size_t>(gy + 1) * w + gx + 1] = face;
-        }
-    }
-    if (k == 1) {
-        return static_cast<SDL_Texture*>(tc.get_rgba(
-            skey, reinterpret_cast<const uint8_t*>(base.data()), w, h));
-    }
-    std::vector<ra2assets::Rgba> up(static_cast<std::size_t>(w) * k * h * k);
-    for (int y = 0; y < h * k; ++y)
-        for (int x = 0; x < w * k; ++x)
-            up[static_cast<std::size_t>(y) * w * k + x] =
-                base[static_cast<std::size_t>(y / k) * w + x / k];
-    SDL_Texture* tex = static_cast<SDL_Texture*>(tc.get_rgba(
-        skey, reinterpret_cast<const uint8_t*>(up.data()), w * k, h * k));
-    if (tex) SDL_SetTextureScaleMode(tex, SDL_ScaleModeLinear);
-    return tex;
-}
-
-// No per-letter uniform rounding: layout uses cumulative fractional advances,
-// matching the existing sharp-bilinear font pipeline and preserving spacing.
-void draw_fnt_text_readable(SDL_Renderer* ren, ra2engine::TextureCache& tc,
-                            const ra2assets::Font& font, const ra2assets::Palette& pal,
-                            const std::string& s, double x, double y,
-                            const char* keypfx, double scale) {
-    double cx = x;
-    for (unsigned char ch : s) {
-        const int width = font.width(ch);
-        if (ch != ' ' && ch >= font.first() && ch <= font.last() && width > 0) {
-            const ra2assets::FntGlyph& g = font.glyph(ch);
-            if (g.w > 0 && g.h > 0) {
-                const std::string key = std::string(keypfx) + std::to_string((int)ch);
-                if (SDL_Texture* tex = fnt_readable_glyph_tex(ren, tc, key, g, pal, scale)) {
-                    const int x0 = static_cast<int>(std::lround(cx - scale));
-                    const int x1 = static_cast<int>(std::lround(cx + (g.w + 1) * scale));
-                    const int y0 = static_cast<int>(std::lround(y - scale));
-                    const int y1 = static_cast<int>(std::lround(y + (g.h + 1) * scale));
-                    SDL_Rect dst{x0, y0, std::max(1, x1 - x0), std::max(1, y1 - y0)};
-                    SDL_RenderCopy(ren, tex, nullptr, &dst);
-                }
-            }
-        }
-        cx += (width > 0 ? width : font.height() / 2) * scale;
     }
 }
 
@@ -6505,30 +6418,18 @@ void draw_shell(SDL_Renderer* ren, ra2engine::TextureCache& tc, const MenuArt& a
     //    canvas scale and shrink per-label if a long label would overflow.
     if (art.font && art.font_pal && art.fnt_ok) {
         const ra2assets::Font& f = *art.font;
-        const double lbl_scale = std::max(1.0, std::round(canvas_scale));
-        const double hdr_scale = std::max(1.0, std::floor(canvas_scale));
-        // The button face stays original RA2 SHP; a very subdued matte behind
-        // the actual label keeps the bright red animation from eating its
-        // gold strokes. No layout/hitbox sizes change.
+        const int lbl_scale = std::max(1, static_cast<int>(std::lround(canvas_scale)));
+        const int hdr_scale = std::max(1, static_cast<int>(std::floor(canvas_scale)));
+        // ldx/ldy = LOGICAL label shift (0 normally; §7.2 pressed = +2,+5).
         auto centered = [&](const std::string& s, int lx, int ly, int lw, int lh,
-                            double wanted, int ldx = 0, int ldy = 0, bool button = false) {
-            if (s.empty()) return;
-            const SDL_Rect box = dev(lx, ly, lw, lh);
-            if (button) {
-                const int inset_x = std::max(4, static_cast<int>(std::lround(canvas_scale * 5.0)));
-                const int inset_y = std::max(3, static_cast<int>(std::lround(canvas_scale * 5.0)));
-                SDL_Rect matte{box.x + inset_x, box.y + inset_y,
-                               std::max(1, box.w - inset_x * 2), std::max(1, box.h - inset_y * 2)};
-                SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
-                SDL_SetRenderDrawColor(ren, 10, 0, 0, 90);
-                SDL_RenderFillRect(ren, &matte);
-            }
-            const auto fit = ra2engine::fit_shell_text(fnt_text_width(f, s), f.height(),
-                                                       box.x, box.y, box.w, box.h,
-                                                       wanted, button ? 10 : 3, button ? 6 : 1);
-            const double tx = fit.x + ldx * canvas_scale;
-            const double ty = fit.y + ldy * canvas_scale;
-            draw_fnt_text_readable(ren, tc, f, *art.font_pal, s, tx, ty, "shf:", fit.scale);
+                            int gscale, int ldx = 0, int ldy = 0) {
+            SDL_Rect box = dev(lx, ly, lw, lh);
+            int tw = fnt_text_width(f, s) * gscale;
+            while (gscale > 1 && tw > box.w) { --gscale; tw = fnt_text_width(f, s) * gscale; }
+            const int th = f.height() * gscale;
+            const int tx = box.x + (box.w - tw) / 2 + static_cast<int>(std::lround(ldx * canvas_scale));
+            const int ty = box.y + (box.h - th) / 2 + static_cast<int>(std::lround(ldy * canvas_scale));
+            draw_fnt_text(ren, tc, f, *art.font_pal, s, tx, ty, "shf:", gscale);
         };
         for (int i = 0; i < static_cast<int>(buttons.size()); ++i) {
             const ShellButton& b = buttons[i];
@@ -6536,7 +6437,7 @@ void draw_shell(SDL_Renderer* ren, ra2engine::TextureCache& tc, const MenuArt& a
             if (row_frames && brow >= 0 && brow < 6 && row_frames[brow] >= 0) continue;   // W2-UI-24
             const bool pressed = (i == pressed_ix);
             centered(b.label, b.rect.x, b.rect.y, b.rect.w, b.rect.h, lbl_scale,
-                     pressed ? 2 : 0, pressed ? 5 : 0, true);
+                     pressed ? 2 : 0, pressed ? 5 : 0);
             if (!b.enabled) {                          // dark veil conveys disabled
                 SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
                 SDL_SetRenderDrawColor(ren, 16, 16, 20, 120);

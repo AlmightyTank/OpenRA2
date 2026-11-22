@@ -54,15 +54,6 @@ inline void shell_small_button(const ShellPainter& p, const ra2engine::SbRect& r
         p.fill(p.dev(r), 60, 0, 0);
         p.frame(p.dev(r), en);
     }
-    // Retain the RA2 MNBTTN artwork while damping its brightest red centre
-    // behind the outlined, fitted label. The button's click geometry stays
-    // exactly the same as before.
-    const SDL_Rect d = p.dev(r);
-    const int px = std::max(3, static_cast<int>(std::lround(p.xf.s * 5)));
-    const int py = std::max(2, static_cast<int>(std::lround(p.xf.s * 4)));
-    if (d.w > px * 2 && d.h > py * 2)
-        p.fill(SDL_Rect{d.x + px, d.y + py, d.w - px * 2, d.h - py * 2},
-               10, 0, 0, 75);
     p.label(label, r.x, r.y, r.w, r.h, 1, en);
 }
 
