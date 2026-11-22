@@ -137,7 +137,12 @@ MSG
 fi
 
 command -v xtool >/dev/null || { echo "xtool not found (https://xtool.sh)" >&2; exit 1; }
-if xtool sdk status 2>/dev/null | grep -qi "not installed"; then
+# On macOS xtool uses the iOS SDK in Xcode. The separate Swift SDK
+# managed by xtool sdk install is for Linux/WSL, not macOS.
+if [ "$(uname -s)" = "Darwin" ]; then
+    xcrun --sdk iphoneos --show-sdk-path >/dev/null ||
+        { echo "Xcode's iPhoneOS SDK is missing" >&2; exit 1; }
+elif xtool sdk status 2>/dev/null | grep -qi "not installed"; then
     echo "The Darwin iOS SDK is not installed: run 'xtool setup' with an Xcode .xip first." >&2
     exit 1
 fi
