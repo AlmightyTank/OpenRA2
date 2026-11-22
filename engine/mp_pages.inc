@@ -779,7 +779,7 @@ private:
     // CK_AIT (a leaver's house -> AI) and CK_XP (cross-platform, experimental).
     enum Check { CK_SHORT, CK_MCV, CK_CRATES, CK_SW, CK_BOA, CK_AIT, CK_XP, CK_COUNT };
     enum Slider { SL_SPEED, SL_CREDITS, SL_UNITS, SL_COUNT };
-    enum Confirm { C_LEAVE = 1, C_INFO, C_QUIT };
+    enum Confirm { C_LEAVE = 1, C_INFO, C_QUIT, C_ROOM_CLOSED };
     // W9-04-07: how long a lobby member's background is excused (the match's
     // AWAY value, 05 §7.2 -- the original never backgrounds; the clone keeps
     // one number for both).
@@ -1490,6 +1490,7 @@ private:
         }
     }
     void confirm_done(int action, int button) override {
+        if (action == C_ROOM_CLOSED && button == 0) { leave(); return; }
         if (action == C_QUIT && button == 0) leave();   // W9-04-09
         if (action == C_LEAVE && button == 0 && host_ && kick_row_ > 0) host_->kick(kick_row_);
         if (action == C_INFO && client_ && (client_->state() == ra2mp::LobbyClient::State::Rejected ||
@@ -1527,9 +1528,15 @@ private:
                     mpui::log_line("room created code=" + code_);
                 } else if (ev.kind == ra2mp::ServerEvent::Peer) {
                     mpui::log_line("server: " + ev.nick + " is joining (tunnel id " + std::to_string(ev.v3) + ")");
-                } else if (ev.kind == ra2mp::ServerEvent::RoomClosed && client_) {
-                    // The host's control connection dropped; the lobby link may still live.
-                    mpui::log_line("server: room closed");
+                } else if (ev.kind == ra2mp::ServerEvent::RoomClosed && ev.code == code_) {
+                    // The server can close waiting rooms via the operator
+                    // console or after host disconnect. Both host and guests
+                    // should see an explanation rather than a dead room.
+                    mpui::log_line("server: waiting room closed " + ev.code);
+                    status_ = "The game server closed this room.";
+                    if (!lobby().started() && !handed_off_ && !confirm_.open())
+                        ask(C_ROOM_CLOSED, "This waiting room was closed on the game server. Return to Internet games.",
+                            {text_.ok});
                 } else if (ev.kind == ra2mp::ServerEvent::Error) {
                     status_ = "Server: " + ev.op + " failed (" + ev.reason + ")";
                 } else if (ev.kind == ra2mp::ServerEvent::Disconnected) {
