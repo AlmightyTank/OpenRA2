@@ -271,17 +271,23 @@ public:
         const auto rows = buttons();
         std::vector<bool> enabled;
         for (const ShellButton& row : rows) enabled.push_back(row.enabled);
+        bool moved = false;
         if (button_focus_ < 0 || button_focus_ >= static_cast<int>(rows.size()) ||
-            !enabled[static_cast<std::size_t>(button_focus_)])
+            !enabled[static_cast<std::size_t>(button_focus_)]) {
             button_focus_ = ra2engine::gamepad_menu_step(enabled, -1, 1);
+            moved = true;
+        }
         const int direction = e.down ? 1 : e.up ? -1 : 0;
-        if (direction && button_focus_ >= 0)
+        if (direction && button_focus_ >= 0) {
             button_focus_ = ra2engine::gamepad_menu_step(enabled, button_focus_, direction);
+            moved = true;
+        }
         if (button_focus_ < 0) return;
         const ra2engine::SbRect r = xform().hit(rows[static_cast<std::size_t>(button_focus_)].rect);
         IE move; move.kind = IE::PointerMove;
         move.x = r.x + r.w / 2; move.y = r.y + r.h / 2;
-        move.t_ms = now_ms; handle(move);
+        move.t_ms = now_ms;
+        if (moved || e.accept) handle(move);
         if (e.accept) {
             IE down = move; down.kind = IE::PointerDown; down.button = IE::Left;
             handle(down);
