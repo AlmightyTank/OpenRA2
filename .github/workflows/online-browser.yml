@@ -59,3 +59,7 @@ jobs:
         run: cmake --build build --target ra2engine ra2assets_tests -j 3
       - name: Run browser tests in engine test binary
         run: ./build/ra2assets_tests --test-case="online browser*"
+      - name: Run cross-platform V3 and endpoint recovery regression tests
+        run: ./build/ra2assets_tests --test-case="mp: S0.1D*" 
+      - name: Verify mixed-platform admission gate
+        run: ./build/ra2assets_tests --test-case="mp: NET-PLAY platform tag*"
