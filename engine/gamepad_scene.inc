@@ -83,10 +83,9 @@
             if (e.left || e.right) {
                 const int n = (active_tab_ + (e.right ? 1 : 3)) % 4;
                 const ra2engine::SbRect r = lay_.tabs[n];
+                // Tabs switch on PointerDown; a release here can leak into
+                // tactical input after sidebar state changes.
                 gamepad_pointer_at(ra2engine::InputEvent::PointerDown,
-                                   ra2engine::InputEvent::Left, false,
-                                   r.x + r.w / 2, r.y + r.h / 2, now_ms);
-                gamepad_pointer_at(ra2engine::InputEvent::PointerUp,
                                    ra2engine::InputEvent::Left, false,
                                    r.x + r.w / 2, r.y + r.h / 2, now_ms);
                 gamepad_cameo_ix_ = 0;
@@ -120,15 +119,11 @@
             if (e.accept) {
                 gamepad_pointer_at(ra2engine::InputEvent::PointerDown,
                                     ra2engine::InputEvent::Left, false, cx, cy, now_ms);
-                gamepad_pointer_at(ra2engine::InputEvent::PointerUp,
-                                    ra2engine::InputEvent::Left, false, cx, cy, now_ms);
             }
             // X is the existing right-click queue action: running -> hold,
             // held/ready -> cancel; never bypasses queue/credit validation.
             if (e.alternate) {
                 gamepad_pointer_at(ra2engine::InputEvent::PointerDown,
-                                    ra2engine::InputEvent::Right, false, cx, cy, now_ms);
-                gamepad_pointer_at(ra2engine::InputEvent::PointerUp,
                                     ra2engine::InputEvent::Right, false, cx, cy, now_ms);
             }
         }
@@ -159,8 +154,11 @@
         if (e.accept) {
             gamepad_pointer_at(ra2engine::InputEvent::PointerDown,
                                 ra2engine::InputEvent::Left, false, x, y, now_ms);
-            gamepad_pointer_at(ra2engine::InputEvent::PointerUp,
-                                ra2engine::InputEvent::Left, false, x, y, now_ms);
+            // Only release while the modal still owns the pointer. If a Resume
+            // action closed it, the release must not enter battlefield input.
+            if (menu_.open_)
+                gamepad_pointer_at(ra2engine::InputEvent::PointerUp,
+                                    ra2engine::InputEvent::Left, false, x, y, now_ms);
             gamepad_menu_ix_ = -1; // new sub-page can have different enabled buttons
         }
     }
