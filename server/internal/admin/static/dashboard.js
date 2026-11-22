@@ -77,8 +77,11 @@
     headline.textContent = room.name;
     const sub = document.createElement('div');
     sub.className = 'secondary-line';
+    const created = new Date(room.created);
+    const createdLabel = Number.isNaN(created.getTime()) ? '' :
+      ' · Created ' + created.toLocaleString();
     sub.textContent = room.code + ' · Host: ' +
-      (room.participants.find((p) => p.role === 'host')?.name || 'Unknown');
+      (room.participants.find((p) => p.role === 'host')?.name || 'Unknown') + createdLabel;
     name.append(headline, sub);
     const details = document.createElement('details');
     const summary = document.createElement('summary');
@@ -128,6 +131,7 @@
         if (e.status === 401) lock();
       } finally {
         pending = false;
+        renderRooms(); // re-enable moderation controls after the request ends
       }
     });
     action.append(close);
