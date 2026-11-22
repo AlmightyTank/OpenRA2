@@ -29,11 +29,12 @@ Use an environment variable and path form appropriate for the operating system. 
 - The original `ls800yuri.shp` and `mplsy.pal` loading-screen pair is selected for Yuri.
 - Unit-level regression cases cover generic `PCV -> YACNST` and `SMIN -> YAREFN` deployment, install-gated by the real map fixture.
 
-## v0.2B blocked implementation — NOT DONE
+## v0.2B economy implementation — code committed, acceptance NOT COMPLETE
 
-1. **Slave Miner**: implementing `Enslaves=SLAV`, initial five workers, worker ore gathering and docking, regeneration (500 logic frames per applicable YR rules), release/liberation upon the parent miner's destruction and worker ownership/serialization. Avoid treating `SMIN` as a standard HARV: it would silently invent the wrong economy.
-2. **Grinder**: implement enter orders, eligibility guards, unit consumption and cash refunds from the source rules with accurate captured-unit behavior. Route through deterministic game commands and keep all multiplayer peers in sync.
-3. **Production and rendering verification**: the complete roster must be built, spawned, drawn, selected and exercised in actual gameplay, including containers, voxels/turrets and AI production.
-4. **Persistence and networking**: new slave-manager/grinder state needs explicit save/load, replay, hash and multiplayer tests. Do not introduce un-serialized timers that desynchronize clients.
+1. **Slave Miner**: YAREFN tracks five worker IDs, workers use the existing ore harvesting and refinery unloading path, lost workers replenish with a 500-frame clock, and surviving workers stop mining and can change ownership when the refinery is destroyed. Initial and regenerated worker slots are recorded in the World save state. This is an initial approximation of the retail SlaveManager, not yet proven 1:1.
+2. **Grinder**: the deterministic `MegaMission Enter` path detects an owned YAGRND, routes eligible units to its foundation, consumes the unit on arrival, and refunds half the unit's stored cost to the house wallet. Entry commands and worker clocks are serialized in World save format 48.
+3. **Production and rendering validation remains**: the full roster must be built, spawned, drawn, selected and exercised in actual gameplay, including voxels/turrets and AI production. The original proprietary game archives are not present on hosted CI.
+4. **Persistence and networking validation remains**: run a save/load and deterministic replay test containing active slaves, a worker death/regeneration, Grinder entry, and refinery destruction; verify no desync with multiple peers and account for captured-refinery worker behavior.
+5. **Fidelity risks**: verify SlaveManager worker docking/scheduling against retail, YAGRND's exact refund rules and eligible unit classes, and event/navigation UI affordances. No retail gameplay pass has been completed.
 
 **Merge gates**: green Linux CI; gameplay smoke on legally owned YR data; Side/Owner build-tree correctness; working Slave Miner + Grinder economics; deterministic replay/network tests; no regression to Allied, Soviet or controller input. Until all gates pass, PRs #5 and #6 must remain draft.
