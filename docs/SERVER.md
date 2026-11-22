@@ -341,3 +341,56 @@ isolation while several matches run, relay bandwidth, and disconnect/rejoin
 behavior. Check domain/DNS and the host's existing services before choosing
 the actual deployment endpoint. These tests are not substitutes for the
 real-device multiplayer acceptance gate.
+
+
+## S0.1B — Internet room browser (client)
+
+The Internet menu now shows a searchable directory with local-only filters.
+The existing `ra2lobbyd` JSON-lines protocol is unchanged and older clients
+can continue to use the same server.
+
+- **Search** matches room name, map name, host nickname, and room code
+  (case-insensitive ASCII search). It does not search private rooms.
+- **All** shows every public room, with rooms you can join sorted first.
+- **Open** shows rooms with at least one available seat that have not started.
+- **Joinable** additionally requires the same simulation build and effective
+  game-data checksum. The in-room host still enforces platform policy; a
+  matching build/data **does not guarantee** that experimental mixed-platform
+  matches are allowed.
+- **Refresh** requests the directory on demand; the client also refreshes
+  automatically every five seconds. `F5` refreshes with a keyboard.
+- Select a room with touch, mouse, or Up/Down; use **Join Game** (or Enter)
+  to join. The selected room stays selected across directory reordering using
+  its stable six-character room code. If the room disappears or is filtered
+  out, selection is cleared instead of silently moving to another room.
+- Full/started/version-mismatched rooms are labeled and cannot be joined
+  through the **Join Game** button. **Join Code** continues to support
+  private rooms and reports server rejections directly.
+- The browser displays the chosen room's host, map and seat count, and
+  indicates how many of the server's public rooms match the current view.
+
+The room browser's search/sort/filter/selection logic lives in the SDL-free
+`engine/mp/room_browser.hpp`, with unit tests in
+`tests/test_room_browser.cpp`. The actual 640x480 shell controls are in
+`engine/mp_pages.inc` and retain the shared touch-list scrolling behavior.
+
+### Acceptance checks before public release
+
+1. Connect to a real `ra2lobbyd` using Windows and Android clients.
+2. Host at least three independent public/private matches simultaneously.
+3. Search by room name, map, host and code; verify a private room is never
+   visible in the public list but is joinable by code.
+4. Start/fill a room; confirm Open and Joinable remove it on refresh, while
+   All labels it as non-joinable.
+5. Change room order between refreshes; confirm the Join action still targets
+   the selected **code**, never the old row index.
+6. Try incompatible engine/data clients and verify the browser warning
+   and server-side version/rejection messages.
+7. Validate keyboard Up/Down/Enter/F5, Android touch, long-press/paste into
+   room-code/search boxes, scroll strips and small screens.
+8. Run C++ browser tests and the full native game build in
+   `.github/workflows/online-browser.yml`. Go server race tests remain in
+   `.github/workflows/lobby-server.yml`.
+
+**Deployment:** none. Do not change master, VPS services or firewall ports
+until the above checks pass.
