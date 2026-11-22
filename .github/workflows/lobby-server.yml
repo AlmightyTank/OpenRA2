@@ -38,5 +38,26 @@ jobs:
         run: go vet ./...
         working-directory: server
       - name: Build Linux lobby daemon
-        run: go build -o /tmp/ra2lobbyd ./cmd/ra2lobbyd
+        run: go build -trimpath -buildvcs=false -o /tmp/ra2lobbyd ./cmd/ra2lobbyd
         working-directory: server
+      - name: Lint deploy scripts and smoke-test guarded release/rollback
+        run: |
+          bash -n server/deploy/release.sh server/deploy/smoke.sh
+          bash server/deploy/smoke.sh /tmp/ra2lobbyd
+      - name: Package release candidates with SHA-256
+        run: |
+          mkdir -p dist
+          for target in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="$target" go build \
+              -trimpath -buildvcs=false -ldflags="-s -w" \
+              -o "../dist/ra2lobbyd-linux-$target" ./cmd/ra2lobbyd
+          done
+          (cd ../dist && sha256sum ra2lobbyd-linux-* > SHA256SUMS)
+        working-directory: server
+      - name: Publish nonproduction release-candidate artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ra2lobbyd-linux-candidates
+          path: dist/
+          retention-days: 14
+          if-no-files-found: error
