@@ -9,6 +9,7 @@
     int gamepad_saved_x_ = 0, gamepad_saved_y_ = 0;
     int gamepad_menu_ix_ = -1;
     int gamepad_menu_page_ = -1;
+    bool gamepad_menu_was_open_ = false;
     int32_t gamepad_instance_ = -1;
     bool gamepad_active_ = false;   // last active pointer source was controller
     bool gamepad_injecting_ = false; // mark synthetic events for track_pointer()
@@ -170,6 +171,7 @@
             gamepad_nav_.reset(0);
             gamepad_sidebar_focus_ = false;
             gamepad_menu_ix_ = -1;
+            gamepad_menu_was_open_ = false;
             if (gamepad_active_) mouse_present_ = false;
             gamepad_active_ = false;
             gamepad_instance_ = -1;
@@ -183,6 +185,7 @@
             gamepad_instance_ = pad.instance_id;
             gamepad_sidebar_focus_ = false;
             gamepad_menu_ix_ = -1;
+            gamepad_menu_was_open_ = false;
             gamepad_nav_.reset(pad.buttons);
             gamepad_cursor_.reset(kWinW, kWinH);
             if (mouse_present_) gamepad_cursor_.sync_pointer(mx_, my_);
@@ -193,6 +196,7 @@
         const auto nav = gamepad_nav_.sample(pad.buttons);
         gamepad_cursor_.resize(kWinW, kWinH);
         if (menu_.open_) {
+            gamepad_menu_was_open_ = true;
             if (gamepad_commands_.cancel_box()) input_.cancel_gesture();
             gamepad_commands_.reset(pad.buttons, pad.axes[4], pad.axes[5]);
             gamepad_cursor_.suspend(now_ms);
@@ -201,6 +205,12 @@
             return;
         }
         gamepad_menu_ix_ = -1;
+        if (gamepad_menu_was_open_) {
+            gamepad_menu_was_open_ = false;
+            gamepad_cursor_.suspend(now_ms);
+            gamepad_pointer(ra2engine::InputEvent::PointerMove,
+                            ra2engine::InputEvent::Left, false, now_ms);
+        }
         if (gamepad_modal_blocked()) {
             if (gamepad_commands_.cancel_box()) input_.cancel_gesture();
             gamepad_commands_.reset(pad.buttons, pad.axes[4], pad.axes[5]);
