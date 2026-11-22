@@ -222,6 +222,78 @@ public:
     ~SkirmishSetupScene() override { set_editing(false); }
 
     void handle(const ra2engine::InputEvent& ev) override;
+    void gamepad_frame(const ra2engine::GamepadState& pad, uint32_t now_ms) override {
+        using IE = ra2engine::InputEvent;
+        if (!pad.connected) {
+            pad_id_ = -1; button_focus_ = -1;
+            nav_.reset(0); map_focus_ = false;
+            return;
+        }
+        if (pad_id_ != pad.instance_id) {
+            pad_id_ = pad.instance_id;
+            nav_.reset(pad.buttons);  // suppress held A after connection
+            button_focus_ = -1; map_focus_ = false;
+            last_mode_ = mode_;
+            return;
+        }
+        const auto e = nav_.sample(pad.buttons);
+        auto key = [&](int k) {
+            IE ev; ev.kind = IE::Key; ev.key = k; ev.t_ms = now_ms; handle(ev);
+        };
+        if (confirm_.open()) {
+            if (e.cancel) key(ra2engine::kKeyEscape);
+            return;
+        }
+        if (combo_ != CB_NONE) {
+            if (e.up) key(ra2engine::kKeyUp);
+            if (e.down) key(ra2engine::kKeyDown);
+            if (e.accept) key(ra2engine::kKeyEnter);
+            if (e.cancel) key(ra2engine::kKeyEscape);
+            return;
+        }
+        if (e.cancel) { key(ra2engine::kKeyEscape); return; }
+        if (mode_ != last_mode_) {
+            last_mode_ = mode_;
+            button_focus_ = -1; map_focus_ = false;
+        }
+        // D-pad Right enters the map list on Customize; Left returns to
+        // sidebar buttons. Maps still use the original list selection logic.
+        if (mode_ == MODE_CUSTOMIZE) {
+            if (e.right && !map_list_.items.empty()) map_focus_ = true;
+            if (e.left) map_focus_ = false;
+        }
+        if (map_focus_ && mode_ == MODE_CUSTOMIZE) {
+            if (e.up) key(ra2engine::kKeyUp);
+            if (e.down) key(ra2engine::kKeyDown);
+            if (e.accept) key(ra2engine::kKeyEnter);
+            return;
+        }
+        const auto rows = buttons();
+        std::vector<bool> enabled;
+        for (const ShellButton& row : rows) enabled.push_back(row.enabled);
+        if (button_focus_ < 0 || button_focus_ >= static_cast<int>(rows.size()) ||
+            !enabled[static_cast<std::size_t>(button_focus_)])
+            button_focus_ = ra2engine::gamepad_menu_step(enabled, -1, 1);
+        const int direction = e.down ? 1 : e.up ? -1 : 0;
+        if (direction && button_focus_ >= 0)
+            button_focus_ = ra2engine::gamepad_menu_step(enabled, button_focus_, direction);
+        if (button_focus_ < 0) return;
+        const ra2engine::SbRect r = xform().hit(rows[static_cast<std::size_t>(button_focus_)].rect);
+        IE move; move.kind = IE::PointerMove;
+        move.x = r.x + r.w / 2; move.y = r.y + r.h / 2;
+        move.t_ms = now_ms; handle(move);
+        if (e.accept) {
+            IE down = move; down.kind = IE::PointerDown; down.button = IE::Left;
+            handle(down);
+            // Action can change the active page. The new page owns any later
+            // release and handles its own layout/hit targets.
+            if (!next_ && !confirm_.open()) {
+                IE up = move; up.kind = IE::PointerUp; up.button = IE::Left;
+                handle(up);
+            }
+            button_focus_ = -1;
+        }
+    }
     void update(double dt) override {
         clock_ += dt;
         if (!art_.audio || !art_.audio->sys.enabled || !art_.audio->sys.mixer) return;
@@ -571,6 +643,11 @@ private:
     int drag_ = -1;
     int mx_ = -1, my_ = -1;
     bool down_ = false;
+    ra2engine::GamepadNav nav_;
+    int32_t pad_id_ = -1;
+    int button_focus_ = -1;
+    bool map_focus_ = false;
+    Mode last_mode_ = MODE_SETUP;
     double clock_ = 0.0;
     GfConfirm confirm_;
     Scene* next_ = nullptr;
