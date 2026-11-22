@@ -120,6 +120,16 @@
             if (e.accept) {
                 gamepad_pointer_at(ra2engine::InputEvent::PointerDown,
                                     ra2engine::InputEvent::Left, false, cx, cy, now_ms);
+                // A ready structure/defense enters normal Input placement.
+                // Return focus to the tactical cursor rather than keeping A
+                // trapped over the sidebar's cameo.
+                if (input_.placement_active()) {
+                    gamepad_sidebar_focus_ = false;
+                    gamepad_cursor_.sync_pointer(gamepad_saved_x_, gamepad_saved_y_);
+                    gamepad_pointer(ra2engine::InputEvent::PointerMove,
+                                    ra2engine::InputEvent::Left, false, now_ms);
+                    return;
+                }
             }
             // X is the existing right-click queue action: running -> hold,
             // held/ready -> cancel; never bypasses queue/credit validation.
