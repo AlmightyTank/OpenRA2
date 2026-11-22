@@ -232,6 +232,15 @@ struct SaveAccess {
         save::io(ar, w.harvest_income_); save::mark(ar, "harvest_income_");   // W2-SK income witness (v13)
         save::io(ar, w.house_credits_); save::mark(ar, "house_credits_");
         save::io(ar, w.harvest_events_); save::mark(ar, "harvest_events_");
+        // Yuri worker identities and regeneration clocks must survive both
+        // save/load and the network replay's serialized state hash.
+        save::io(ar, w.yuri_slaves_armed_); save::mark(ar, "yuri_slaves_armed_");
+        save::io(ar, w.yuri_slave_combat_); save::mark(ar, "yuri_slave_combat_");
+        save::io(ar, w.yuri_slave_capacity_); save::mark(ar, "yuri_slave_capacity_");
+        save::io(ar, w.yuri_slave_regen_frames_); save::mark(ar, "yuri_slave_regen_frames_");
+        save::io(ar, w.yuri_slave_mines_); save::mark(ar, "yuri_slave_mines_");
+        save::io(ar, w.yuri_slave_spawn_at_); save::mark(ar, "yuri_slave_spawn_at_");
+        save::io(ar, w.yuri_slave_prev_alive_); save::mark(ar, "yuri_slave_prev_alive_");
         // Repair & Sell
         save::io(ar, w.repair_rules_); save::mark(ar, "repair_rules_");
         save::io(ar, w.repair_sell_any_); save::mark(ar, "repair_sell_any_");
