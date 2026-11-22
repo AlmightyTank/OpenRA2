@@ -1644,6 +1644,7 @@ bool reaches(const Unit& u, Cellxy g) {
 void World::order_unit_move(int idx, int gx, int gy) {
     if (idx < 0 || idx >= static_cast<int>(units_.size())) return;
     Unit& u = units_[idx];
+    u.grinder_target = -1;  // a new move supersedes a pending Grinder entry
     u.tg.area_guard = false;   // W6-02-11: a move order leaves Area_Guard
     // w7fix-combat: a move order replaces the mission (Sleep / Harmless /
     // Sticky / Attack Move, a retaliation's saved order, the area-guard home).
