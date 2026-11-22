@@ -1,21 +1,26 @@
-# systemd unit for the static binary (no Docker):
-#   sudo install -m 0755 ra2lobbyd /usr/local/bin/ra2lobbyd
-#   sudo install -m 0644 ra2lobbyd.service /etc/systemd/system/
-#   sudo systemctl daemon-reload && sudo systemctl enable --now ra2lobbyd
-#   journalctl -u ra2lobbyd -f
+# Example systemd unit for an explicitly approved OpenRA2 lobby deployment.
+# This file is NEVER installed/enabled by CI or deploy/release.sh.
+# For new services, stage a verified binary under /opt/openra2-lobby/current.
+# Do not replace another app's service. Follow docs/S0.1F-PRODUCTION-READINESS.md.
 [Unit]
-Description=RA2 clone lobby + relay server (ra2lobbyd)
+Description=OpenRA2 central lobby and UDP game relay (ra2lobbyd)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/local/bin/ra2lobbyd --server-name "My RA2 server" --relay-ports 50100-50999
-# Optional: Environment=RA2_PUBLIC_IP=203.0.113.10  RA2_MOTD=Hello  RA2_BAN_FILE=/etc/ra2lobbyd/bans.json
+Type=simple
+EnvironmentFile=-/etc/openra2-lobby/ra2lobbyd.env
+ExecStartPre=/opt/openra2-lobby/current/ra2lobbyd --check-config
+ExecStart=/opt/openra2-lobby/current/ra2lobbyd
+WorkingDirectory=/opt/openra2-lobby/current
 DynamicUser=yes
 Restart=on-failure
-RestartSec=2
+RestartSec=5
+TimeoutStopSec=15
+KillSignal=SIGTERM
 LimitNOFILE=8192
-# Hardening: the daemon needs nothing but its sockets.
+UMask=0077
+# Restrict the daemon to sockets and read-only staged releases.
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
@@ -28,6 +33,7 @@ RestrictAddressFamilies=AF_INET AF_INET6
 RestrictNamespaces=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
+RestrictSUIDSGID=yes
 SystemCallArchitectures=native
 
 [Install]
