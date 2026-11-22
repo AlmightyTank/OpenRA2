@@ -3041,8 +3041,9 @@ ra2engine::AiHouseConfig make_ai_config(const BuildingAssets& ba, const Rules& r
     cfg.catalog.war_factory = pick("BuildWeapons");
     cfg.catalog.radar = pick("BuildRadar");
     for (const std::string& d : aiside::csv_tokens(rules.section_string(
-             "AI", side == ra2engine::World::Side::Soviet ? "SovietBaseDefenses"
-                                                          : "AlliedBaseDefenses", ""))) {
+             "AI", side == ra2engine::World::Side::Yuri ? "ThirdBaseDefenses"
+                    : (side == ra2engine::World::Side::Soviet ? "SovietBaseDefenses"
+                                                               : "AlliedBaseDefenses"), ""))) {
         const int t = ok_index(d.c_str());
         if (t >= 0) cfg.catalog.defenses.push_back(t);
     }
@@ -14649,7 +14650,9 @@ ra2engine::World launch_skirmish(const ra2engine::SkirmishConfig& cfg,
             const int mcv = gf_spawn_start_force(world, *gf_rules_ini, rules, i, country, bx, by,
                                                  cfg.unit_count, cfg.tech_level, rng, gf_spawned);
             if (s.is_ai && ba.ok) {
-                world.enable_ai_house(i, make_ai_config(ba, rules, s.diff, cfg.starting_cash));
+                world.enable_ai_house(i, make_ai_config(
+                    ba, rules, s.diff, cfg.starting_cash, s.side,
+                    aiside::house_country(s.side, s.country, &rules)));
                 // An AI house unfolds its MCV at once (the AI's "deploy the
                 // BaseUnit when there is no ConYard" step; D owns the full AI
                 // MCV logic -- this is the World-level order it calls).
@@ -14678,7 +14681,8 @@ ra2engine::World launch_skirmish(const ra2engine::SkirmishConfig& cfg,
         if (ba.ok) spawn_base(world, ba, /*house=*/i, bx, by);
         // unit_count starting units (ring-scan for free walkable cells).
         ra2engine::UnitCombat uc = resolve_combat_unit(
-            rules, s.side == ra2engine::World::Side::Soviet ? "E2" : "E1").combat;
+            rules, s.side == ra2engine::World::Side::Yuri ? "INIT"
+                     : (s.side == ra2engine::World::Side::Soviet ? "E2" : "E1")).combat;
         int placed = 0;
         for (int r = 1; r <= 8 && placed < cfg.unit_count; ++r)
             for (int dy = -r; dy <= r && placed < cfg.unit_count; ++dy)
