@@ -89,6 +89,21 @@ private:
     void gf_load_assets(const std::vector<std::string>& spawned) {
         std::vector<std::string> ids = gf_tokens(rules_.general_string("BaseUnit", "AMCV,SMCV,PCV"));
         for (const std::string& id : spawned) ids.push_back(id);
+        // Produced Yuri vehicles are not necessarily in the opening force.
+        // Preload their own rules/art-backed types when any combatant uses
+        // Yuri, rather than displaying an invisible unit after production.
+        const bool has_yuri = std::any_of(cfg_.slots.begin(), cfg_.slots.end(),
+            [](const ra2engine::SkirmishSlot& slot) {
+                return slot.combatant && slot.side == ra2engine::World::Side::Yuri;
+            });
+        if (has_yuri) {
+            static const char* kYuriArt[] = {
+                "INIT", "VIRUS", "BRUTE", "YURI", "YURIPR", "SLAV", "YENGINEER",
+                "LTNK", "YTNK", "TELE", "MIND", "CAOS", "SMIN", "PCV",
+                "YHVR", "DISK", "BSUB"
+            };
+            for (const char* id : kYuriArt) ids.emplace_back(id);
+        }
         MixFile* conquer = nullptr;
         std::unique_ptr<MixFile> conquer_holder;
         for (const std::string& id : ids) {

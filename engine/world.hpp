@@ -222,6 +222,7 @@ struct Unit {
     int cargo_of = -1;           // >=0: index of the transport carrying this
                                  // unit -- the unit is OFF-MAP (spec §4)
     int enter_target = -1;       // pending enter order -> transport index
+    int grinder_target = -1;     // Yuri Grinder entry order -> building index
     bool unload_pending = false; // pending unload order on this transport
     int eject_counter = 0;       // eject_cell scatter-side alternator (+/-90 deg
                                  // by low bit), bumped once per eject
@@ -1275,6 +1276,15 @@ public:
     // Gap owner A (G-22): a War Factory-built HARV/CMIN leaves through the
     // ordinary launch_unit exit, then becomes a miner hunting ore exactly like
     // add_harvester's (SeekOre). No-op on a bad index.
+    // Yuri's Slave Miner economy. Off in every non-Yuri game until the real
+    // game-data host supplies the SLAV combat profile.
+    void arm_yuri_slave_mining(const UnitCombat& worker, int capacity = 5,
+                               int regen_frames = 500) {
+        yuri_slaves_armed_ = true;
+        yuri_slave_combat_ = worker;
+        yuri_slave_capacity_ = std::max(1, capacity);
+        yuri_slave_regen_frames_ = std::max(1, regen_frames);
+    }
     void make_harvester(int unit_idx, bool chrono, int storage_bales) {
         if (unit_idx < 0 || unit_idx >= static_cast<int>(units_.size())) return;
         Unit& u = units_[unit_idx];
@@ -1289,6 +1299,9 @@ public:
     // (x, y), set the mission to MoveToOre, and emit the path immediately
     // via order_unit_move (mirrors step()'s own HarvestMove handling).
     void group_harvest(int issuer, const std::vector<int>& ids, int x, int y);
+    // Route owned ground units into their own Yuri Grinder for a cash refund.
+    bool is_yuri_grinder(int building_index) const;
+    void group_grind(int issuer, const std::vector<int>& ids, int building_index);
     // ReturnToRef now (resets harv_timer -- every transition into
     // ReturnToRef resets it; see harvest.cpp's ChronoOut-fires-once comment).
     void group_return(int issuer, const std::vector<int>& ids);
@@ -3124,6 +3137,16 @@ private:
     // grow_house_arrays.
     std::vector<double> house_credits_;
     std::vector<PendingHarvestEvent> harvest_events_;  // pending take_harvest_events() drain
+    // Yuri mine index -> stable worker unit indices, saved/hashed for replay.
+    bool yuri_slaves_armed_ = false;
+    UnitCombat yuri_slave_combat_;
+    int yuri_slave_capacity_ = 5;
+    int yuri_slave_regen_frames_ = 500;
+    std::vector<std::pair<int, std::vector<int>>> yuri_slave_mines_;
+    std::vector<std::uint64_t> yuri_slave_spawn_at_;
+    std::vector<int> yuri_slave_prev_alive_;
+    void step_yuri_slave_mining();
+    void step_yuri_grinders();
 
     // --- Repair & Sell phase [RE: repair-sell.md] -------------------------
     // ALL inert by default. repair_sell_any_ is opened ONLY by set_repair

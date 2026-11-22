@@ -1407,6 +1407,168 @@ Unit& World::add_harvester(int cell_x, int cell_y, int house, const UnitCombat& 
     return u;
 }
 
+// Yuri Slave Miner: YAREFN owns up to five autonomous SLAV harvesters. Each
+// worker uses the existing ore/return/refinery pipeline, so mined resources
+// enter the ordinary per-house wallet without a fabricated income rate.
+// Worker IDs and regeneration clocks are serialized for deterministic replay.
+void World::step_yuri_slave_mining() {
+    if (!yuri_slaves_armed_ || types_.empty()) return;
+    const auto& defs = btypes();
+    auto is_mine = [&](int bi) {
+        if (bi < 0 || bi >= static_cast<int>(buildings_.size())) return false;
+        const Building& b = buildings_[static_cast<std::size_t>(bi)];
+        return b.alive && b.state == Building::State::Idle &&
+               b.house >= 0 && b.house < house_count() &&
+               b.type >= 0 && b.type < static_cast<int>(defs.size()) &&
+               defs[static_cast<std::size_t>(b.type)].id == "YAREFN";
+    };
+    // Release surviving slaves on loss of the controlling refinery.
+    for (std::size_t k = 0; k < yuri_slave_mines_.size();) {
+        const int bi = yuri_slave_mines_[k].first;
+        if (is_mine(bi)) { ++k; continue; }
+        int liberator = -1;
+        if (bi >= 0 && bi < static_cast<int>(buildings_.size())) {
+            const int killer = buildings_[static_cast<std::size_t>(bi)].killed_by;
+            if (killer >= 0 && killer < static_cast<int>(units_.size()))
+                liberator = units_[static_cast<std::size_t>(killer)].house;
+        }
+        for (int ui : yuri_slave_mines_[k].second) {
+            if (ui < 0 || ui >= static_cast<int>(units_.size())) continue;
+            Unit& u = units_[static_cast<std::size_t>(ui)];
+            if (!u.alive || u.die_time >= 0.0) continue;
+            u.is_harvester = false;
+            u.harv = HarvState::None;
+            u.dock_refinery = -1;
+            u.manual_hold = false;
+            if (liberator >= 0 && liberator < house_count() && liberator != u.house)
+                set_unit_owner(ui, liberator);
+        }
+        yuri_slave_mines_.erase(yuri_slave_mines_.begin() + static_cast<std::ptrdiff_t>(k));
+        yuri_slave_spawn_at_.erase(yuri_slave_spawn_at_.begin() + static_cast<std::ptrdiff_t>(k));
+        yuri_slave_prev_alive_.erase(yuri_slave_prev_alive_.begin() + static_cast<std::ptrdiff_t>(k));
+    }
+
+    // A mine gets its first five workers when it finishes construction; lost
+    // workers are replaced one at a time on a 500-frame (rules-configurable)
+    // clock. Building and unit indices stay stable during a simulation.
+    for (int bi = 0; bi < static_cast<int>(buildings_.size()); ++bi) {
+        if (!is_mine(bi)) continue;
+        std::size_t k = 0;
+        while (k < yuri_slave_mines_.size() && yuri_slave_mines_[k].first != bi) ++k;
+        const bool fresh = k == yuri_slave_mines_.size();
+        if (fresh) {
+            yuri_slave_mines_.push_back({bi, {}});
+            yuri_slave_spawn_at_.push_back(repair_frame_);
+            yuri_slave_prev_alive_.push_back(0);
+        }
+        std::vector<int>& workers = yuri_slave_mines_[k].second;
+        const Building& mine = buildings_[static_cast<std::size_t>(bi)];
+        workers.erase(std::remove_if(workers.begin(), workers.end(), [&](int ui) {
+            return ui < 0 || ui >= static_cast<int>(units_.size()) ||
+                   !units_[static_cast<std::size_t>(ui)].alive ||
+                   units_[static_cast<std::size_t>(ui)].die_time >= 0.0 ||
+                   units_[static_cast<std::size_t>(ui)].house != mine.house;
+        }), workers.end());
+        int alive = static_cast<int>(workers.size());
+        if (!fresh && alive < yuri_slave_prev_alive_[k])
+            yuri_slave_spawn_at_[k] = repair_frame_ + static_cast<std::uint64_t>(yuri_slave_regen_frames_);
+
+        auto spawn_worker = [&]() {
+            for (int radius = 1; radius <= 6; ++radius)
+                for (int y = mine.cy - radius; y < mine.cy + mine.fh + radius; ++y)
+                    for (int x = mine.cx - radius; x < mine.cx + mine.fw + radius; ++x) {
+                        if (x >= mine.cx && x < mine.cx + mine.fw &&
+                            y >= mine.cy && y < mine.cy + mine.fh) continue;
+                        if (!walkable(x, y) || unit_at_cell(x, y) >= 0) continue;
+                        bool occupied_by_building = false;
+                        for (const Building& other : buildings_)
+                            if (other.alive && x >= other.cx && x < other.cx + other.fw &&
+                                y >= other.cy && y < other.cy + other.fh) {
+                                occupied_by_building = true; break;
+                            }
+                        if (occupied_by_building) continue;
+                        add_harvester(x, y, mine.house, yuri_slave_combat_, false, 1);
+                        workers.push_back(static_cast<int>(units_.size()) - 1);
+                        return true;
+                    }
+            return false;
+        };
+        if (fresh) {
+            while (alive < yuri_slave_capacity_ && spawn_worker()) ++alive;
+            yuri_slave_spawn_at_[k] = repair_frame_ +
+                                     static_cast<std::uint64_t>(yuri_slave_regen_frames_);
+        } else if (alive < yuri_slave_capacity_ && repair_frame_ >= yuri_slave_spawn_at_[k]) {
+            if (spawn_worker()) ++alive;
+            yuri_slave_spawn_at_[k] = repair_frame_ +
+                                     static_cast<std::uint64_t>(yuri_slave_regen_frames_);
+        }
+        yuri_slave_prev_alive_[k] = alive;
+    }
+}
+
+bool World::is_yuri_grinder(int bi) const {
+    const auto& bt = btypes();
+    if (bi < 0 || bi >= static_cast<int>(buildings_.size())) return false;
+    const Building& b = buildings_[static_cast<std::size_t>(bi)];
+    return b.alive && b.state == Building::State::Idle &&
+           b.type >= 0 && b.type < static_cast<int>(bt.size()) &&
+           bt[static_cast<std::size_t>(b.type)].id == "YAGRND";
+}
+
+void World::group_grind(int issuer, const std::vector<int>& ids, int bi) {
+    if (!is_yuri_grinder(bi)) return;
+    const Building& b = buildings_[static_cast<std::size_t>(bi)];
+    if (b.house != issuer) return;
+    for (int ui : ids) {
+        if (ui < 0 || ui >= static_cast<int>(units_.size())) continue;
+        Unit& u = units_[static_cast<std::size_t>(ui)];
+        if (!u.alive || u.die_time >= 0.0 || u.deployed_away ||
+            u.house != issuer || u.is_aircraft || u.cargo_of >= 0) continue;
+        int target_x = u.cell_x, target_y = u.cell_y;
+        int best_dist = 0x7fffffff;
+        for (int y = b.cy - 1; y <= b.cy + b.fh; ++y)
+            for (int x = b.cx - 1; x <= b.cx + b.fw; ++x) {
+                if (x >= b.cx && x < b.cx + b.fw &&
+                    y >= b.cy && y < b.cy + b.fh) continue;
+                if (!walkable(x, y)) continue;
+                const int occupied = unit_at_cell(x, y);
+                if (occupied >= 0 && occupied != ui) continue;
+                const int d = std::max(std::abs(u.cell_x - x), std::abs(u.cell_y - y));
+                if (d < best_dist) { best_dist = d; target_x = x; target_y = y; }
+            }
+        if (best_dist == 0x7fffffff) continue;
+        order_unit_move(ui, target_x, target_y);
+        units_[static_cast<std::size_t>(ui)].grinder_target = bi;
+    }
+}
+
+// The existing MegaMission Enter route feeds a Grinder through group_grind;
+// the unit is consumed ONLY on arrival at a friendly, operational Grinder.
+// Credits enter the same wallet used by ore and normal production.
+void World::step_yuri_grinders() {
+    for (int ui = 0; ui < static_cast<int>(units_.size()); ++ui) {
+        Unit& u = units_[static_cast<std::size_t>(ui)];
+        const int bi = u.grinder_target;
+        if (bi < 0) continue;
+        if (!u.alive || u.die_time >= 0.0 || u.deployed_away || !is_yuri_grinder(bi) ||
+            u.house != buildings_[static_cast<std::size_t>(bi)].house) {
+            u.grinder_target = -1;
+            continue;
+        }
+        const Building& b = buildings_[static_cast<std::size_t>(bi)];
+        const int dx = u.cell_x < b.cx ? b.cx - u.cell_x :
+                       u.cell_x >= b.cx + b.fw ? u.cell_x - (b.cx + b.fw - 1) : 0;
+        const int dy = u.cell_y < b.cy ? b.cy - u.cell_y :
+                       u.cell_y >= b.cy + b.fh ? u.cell_y - (b.cy + b.fh - 1) : 0;
+        if (dx > 1 || dy > 1) continue;
+        const int house = u.house;
+        const int cost = std::max(0, u.vet.cost);
+        u.grinder_target = -1;
+        consume_unit(ui);
+        deposit_credits(house, static_cast<double>(cost) * 0.5);
+    }
+}
+
 void World::group_harvest(int issuer, const std::vector<int>& ids, int x, int y) {
     for (int i : ids) {
         if (i < 0 || i >= static_cast<int>(units_.size())) continue;
@@ -1482,6 +1644,7 @@ bool reaches(const Unit& u, Cellxy g) {
 void World::order_unit_move(int idx, int gx, int gy) {
     if (idx < 0 || idx >= static_cast<int>(units_.size())) return;
     Unit& u = units_[idx];
+    u.grinder_target = -1;  // a new move supersedes a pending Grinder entry
     u.tg.area_guard = false;   // W6-02-11: a move order leaves Area_Guard
     // w7fix-combat: a move order replaces the mission (Sleep / Harmless /
     // Sticky / Attack Move, a retaliation's saved order, the area-guard home).
@@ -5945,6 +6108,7 @@ void World::step(double dt) {
     // -- no existing unit-step logic is reordered; `if (!cargo_any_) return;`
     // inside is the only cost every existing demo pays [spec §8].
     step_cargo(dt);
+    step_yuri_grinders();   // friendly Yuri Grinders consume units on arrival
 
     // Engineer/Spy Capture [RE: capture.md §A5]: the capture-arrival pass --
     // an engineer with a live capture_target that has reached adjacency to its
@@ -5959,6 +6123,7 @@ void World::step(double dt) {
     // gF MCV deploy [RE: docs/re/mcv-deploy.md]: the turn-then-unfold mission.
     // `if (!deploy_any_) return;` inside -- no gate issues a deploy order.
     step_deploy(dt);
+    step_yuri_slave_mining();   // Yuri's YAREFN worker economy (inert unless armed)
 
     // CB-2 Aircraft [RE: aircraft.md §3.5/§6]: the airborne movement pass --
     // takeoff/cruise/descend runs AFTER step_cargo and BEFORE step_turrets/

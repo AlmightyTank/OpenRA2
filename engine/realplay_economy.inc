@@ -14,6 +14,14 @@
 void real_play_arm_economy(ra2engine::World& world, const BuildingAssets& ba, const Rules& rules,
                            Assets& a) {
     wire_economy(world, ba, rules);
+    // Yuri's deployed Slave Miner becomes a YAREFN; its five SLAV workers
+    // use the existing ore/unloading economy, not the standard HARV vehicle.
+    // Only a match with Yuri houses arms this deterministic subsystem.
+    bool has_yuri = false;
+    for (int h = 0; h < world.house_count(); ++h)
+        has_yuri = has_yuri || world.house_side(h) == ra2engine::World::Side::Yuri;
+    if (has_yuri && rules.is_infantry("SLAV"))
+        world.arm_yuri_slave_mining(resolve_combat_unit(rules, "SLAV").combat, 5, 500);
     world.set_water_terrain(resolve_land_types(a.map, a.theater, world.grid_w(), world.grid_h()));
 }
 
@@ -99,10 +107,9 @@ bool rp_is_lobby_sw_building(const Rules& rules, const std::string& id) {
     return rp_flag(rules, sw, "DisableableFromShell");
 }
 
-// The human's country: the lobby slot's country when its [Country] Side=
-// matches the slot's side (GDI=Allied, Nod=Soviet), else the side's stock
-// default (Americans / Russians). The lobby's side button changes only the
-// side, so a stale "Americans" on a Soviet slot must not leak through.
+// Resolve all three player countries without leaking an Allied/Soviet roster
+// into a Yuri game. Country-specific ownership controls production; a wrong
+// fallback here silently removes the entire ThirdSide roster from the sidebar.
 std::string rp_player_country(const Rules& rules, const ra2engine::SkirmishSlot& s) {
     const bool yuri = s.side == ra2engine::World::Side::Yuri;
     const bool soviet = s.side == ra2engine::World::Side::Soviet;
@@ -112,6 +119,7 @@ std::string rp_player_country(const Rules& rules, const ra2engine::SkirmishSlot&
         const std::string actual = rp_upper(rules.section_string(s.country, "Side", ""));
         if (actual == want || (yuri && actual == "YURI"))
             return s.country;
+        // A few modded rules files omit the Side= field for YuriCountry.
         if (yuri && s.country == "YuriCountry" && actual.empty()) return s.country;
     }
     return fallback;
