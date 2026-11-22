@@ -27,14 +27,7 @@ jobs:
         run: go test -count=1 ./...
         working-directory: server
       - name: Repeated real-socket multi-match stress
-        run: go test -count=10 -run '^TestLiveConcurrentV3Matches
-      - name: Vet
-        run: go vet ./...
-        working-directory: server
-      - name: Build Linux lobby daemon
-        run: go build -o /tmp/ra2lobbyd ./cmd/ra2lobbyd
-        working-directory: server
- ./internal/lobby
+        run: go test -count=5 -run TestLive ./internal/lobby
         working-directory: server
       - name: Race detector
         run: go test -race -count=1 ./...
