@@ -78,4 +78,16 @@ RA2_ADMIN_URL="$ADMIN" RA2_RELEASE_ROOT="$ROOT/releases-root" \
   RA2_MAINTENANCE_ACK=YES bash server/deploy/release.sh rollback --apply >>"$ROOT/staged"
 [[ "$(readlink -f "$ROOT/releases-root/current")" == *"smoke-v1" ]] ||
   { echo "rollback did not select previous release" >&2;exit 1; }
-echo "PASS: health, operator auth, metrics, dry-run preflight, guarded staging and rollback"
+# First install has a separate explicit acknowledgement and must have NO
+# running admin endpoint. Exercise it on a different unused loopback port.
+if RA2_ADMIN_URL="http://127.0.0.1:19999" RA2_RELEASE_ROOT="$ROOT/bootstrap-root" \
+  RA2_MAINTENANCE_ACK=YES bash server/deploy/release.sh bootstrap "$BIN" "$ROOT/checksum" --apply \
+  >"$ROOT/bootstrap-block.log" 2>&1; then
+  echo "bootstrap succeeded without RA2_BOOTSTRAP_ACK" >&2;exit 1
+fi
+RA2_ADMIN_URL="http://127.0.0.1:19999" RA2_RELEASE_ROOT="$ROOT/bootstrap-root" \
+  RA2_BOOTSTRAP_ACK=YES RA2_MAINTENANCE_ACK=YES RA2_RELEASE_NAME=initial \
+  bash server/deploy/release.sh bootstrap "$BIN" "$ROOT/checksum" --apply >"$ROOT/bootstrap"
+[[ -x "$ROOT/bootstrap-root/current/ra2lobbyd" ]] ||
+  { echo "explicit first-install stage missing" >&2;exit 1; }
+echo "PASS: health, operator auth, metrics, dry-run preflight, guarded staging, bootstrap and rollback"
