@@ -8,7 +8,6 @@ import (
     "embed"
     "encoding/json"
     "errors"
-    "fmt"
     "io"
     "io/fs"
     "net"
@@ -186,4 +185,3 @@ func (h *Handler) status(w http.ResponseWriter) {
 
 // Compile-time check that the UI's endpoint is an HTTP handler.
 var _ http.Handler = (*Handler)(nil)
-var _ = fmt.Sprintf
