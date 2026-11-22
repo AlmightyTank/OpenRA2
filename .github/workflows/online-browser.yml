@@ -19,6 +19,11 @@ on:
       - 'CMakeLists.txt'
       - '.github/workflows/online-browser.yml'
 
+# Keep one current native build per branch/PR; older commits are superseded.
+concurrency:
+  group: online-browser-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
