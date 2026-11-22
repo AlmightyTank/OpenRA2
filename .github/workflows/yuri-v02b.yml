@@ -9,6 +9,10 @@ on:
       - 'tests/**'
       - '.github/workflows/yuri-v02b.yml'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
