@@ -37,7 +37,8 @@ struct Platform::Impl {
         if (actual < 0 || !registry.add(actual)) { SDL_GameControllerClose(pad); return; }
         gamepads.push_back(pad);
         SDL_Log("[gamepad] connected: %s (instance=%d, active=%d)",
-                SDL_GameControllerName(pad), static_cast<int>(actual), static_cast<int>(registry.active()));
+                SDL_GameControllerName(pad) ? SDL_GameControllerName(pad) : "Unknown Controller",
+                static_cast<int>(actual), static_cast<int>(registry.active()));
     }
     void remove_gamepad(SDL_JoystickID id) {
         if (!registry.remove(id)) return;
