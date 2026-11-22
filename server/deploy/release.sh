@@ -21,6 +21,7 @@ Environment:
   RA2_ADMIN_URL        local admin base (default http://127.0.0.1:8080)
   RA2_MAINTENANCE_ACK  must be EXACTLY "YES" for bootstrap/stage/rollback
   RA2_BOOTSTRAP_ACK    must also be "YES" for a first installation
+  RA2_EMERGENCY_ACK    must also be "YES" for an offline rollback when health fails
   RA2_RELEASE_NAME     optional version label (safe alphanumeric . _ -)
 The script never restarts a service. After stage, the operator must
 separately perform the approved systemd restart and health check.
@@ -119,7 +120,19 @@ if [[ "$MODE" == bootstrap && "${RA2_BOOTSTRAP_ACK:-}" != YES ]]; then
   exit 2
 fi
 if [[ "$MODE" == rollback ]]; then
-  require_idle
+  if ! require_idle; then
+    if [[ "${RA2_EMERGENCY_ACK:-}" != YES ]]; then
+      echo "BLOCKED: unresponsive server requires explicit RA2_EMERGENCY_ACK=YES" >&2
+      exit 1
+    fi
+    if ! command -v systemctl >/dev/null ||
+       [[ "$(systemctl show -p LoadState --value ra2lobbyd 2>/dev/null || true)" != loaded ]] ||
+       systemctl is-active --quiet ra2lobbyd; then
+      echo "BLOCKED: offline rollback only when systemd confirms ra2lobbyd is installed and inactive" >&2
+      exit 1
+    fi
+    echo "OFFLINE EMERGENCY: systemd reports ra2lobbyd inactive; selecting previous release only."
+  fi
   [[ -L "$ROOT/previous" && -d "$ROOT/previous" ]] ||
     { echo "ERROR: no previous release to restore" >&2; exit 1; }
   candidate="$(readlink -f "$ROOT/previous")"
