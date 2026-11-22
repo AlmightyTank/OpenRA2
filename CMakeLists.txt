@@ -124,6 +124,8 @@ target_sources(ra2assets_tests PRIVATE tests/test_hotkeys.cpp engine/hotkeys.cpp
 target_sources(ra2assets_tests PRIVATE tests/test_touch_gestures.cpp engine/touch_gestures.cpp)
 # V0.1B: SDL-free controller hotplug policy tests (no hardware required).
 target_sources(ra2assets_tests PRIVATE tests/test_gamepad_registry.cpp)
+# V0.1C: SDL-free analog input tests (no physical controller required).
+target_sources(ra2assets_tests PRIVATE tests/test_gamepad_cursor.cpp)
 # occupancy.cpp is a pure C++17 cell-ownership grid (no SDL) used by the
 # multi-unit movement/collision logic; compiled into both this test binary and
 # ra2engine from one source of truth (same pattern as pathfind.cpp/world.cpp).
