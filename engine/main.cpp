@@ -8895,6 +8895,9 @@ public:
             IE ev; ev.kind = IE::PointerDown; ev.button = IE::Left;
             ev.x = r.x + r.w / 2; ev.y = r.y + r.h / 2;
             ev.t_ms = now; handle(ev); // same ShellButton action/hitbox
+            // Click actions dispatch on Down; clear the visual pressed state
+            // without releasing a pointer into the next scene or a modal.
+            down_ = false;
         }
     }
     void   handle(const ra2engine::InputEvent& ev) override;   // out-of-line: needs SkirmishSetupScene
