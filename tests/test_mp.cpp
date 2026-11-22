@@ -11,6 +11,7 @@
 #include "mp/mp_lobby.hpp"
 #include "mp/mp_model.hpp"
 #include "mp/mp_net.hpp"
+#include "mp/server_link.hpp"
 #include "net/wire.hpp"
 
 #include <map>
