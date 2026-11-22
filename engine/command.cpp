@@ -229,7 +229,9 @@ void apply_mega(World& w, const Command& c, CommandHost* host) {
                 const Building& b = w.buildings()[static_cast<std::size_t>(c.target.id)];
                 // Dock: harvesters entering their own refinery return to it;
                 // anything else entering a building garrisons it.
-                if (b.alive && b.house == H && rules_of(host).is_refinery(b.type)) w.group_return(H, ids);
+                if (b.alive && b.house == H && w.is_yuri_grinder(c.target.id))
+                    w.group_grind(H, ids, c.target.id);
+                else if (b.alive && b.house == H && rules_of(host).is_refinery(b.type)) w.group_return(H, ids);
                 // W7-08-01 / W7-04-06 [RE: Mission_Repair 0x44B780]: damaged
                 // vehicles entering an own UnitRepair building dock for service.
                 else if (w.depot_wants(H, ids, c.target.id)) (void)w.group_depot(H, ids, c.target.id);
