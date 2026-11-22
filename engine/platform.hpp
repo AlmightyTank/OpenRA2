@@ -1,5 +1,7 @@
 #pragma once
 #include <cstdint>
+#include <array>
+#include <string>
 namespace ra2engine {
 struct InputEvent {
     // P7: Key (a key the UI consumes; `key` = one of the kKey* codes below, or 0
@@ -60,6 +62,16 @@ struct EventSource {
 // through the exact production mapping.
 void key_event_from_sdl(int sdl_keycode, int sdl_mod, InputEvent& ev);
 
+// Physical state only: gameplay mapping belongs to v0.1C/v0.1D.
+// Buttons use SDL_GameControllerButton ordinal values, with button bit N at 1u << N.
+struct GamepadState {
+    bool connected = false;
+    int32_t instance_id = -1;
+    std::string name;
+    std::array<int16_t, 6> axes{}; // SDL left/right X/Y, left/right triggers
+    uint32_t buttons = 0;
+};
+
 class Platform : public EventSource {
 public:
     // hidden = true creates an invisible window with the software renderer (the
@@ -68,6 +80,9 @@ public:
     Platform(Platform&&) noexcept; Platform& operator=(Platform&&) noexcept;
     ~Platform() override;
     bool poll(InputEvent& ev) override;
+    // Read-only physical snapshot. Does not generate gameplay commands or fake mouse events.
+    GamepadState gamepad_state() const;
+    int gamepad_count() const;
     void begin_frame();
     void present();
     void* renderer() const;   // SDL_Renderer*
