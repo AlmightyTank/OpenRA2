@@ -78,7 +78,7 @@ type client struct {
 	hosted  *Room
 	joined  map[*Room]bool
 	v3ByRoom map[*Room]uint32 // reserved tunnel id in each joined room
-	allocs  []*relay.Allocation
+	relays map[*Room]*relay.Allocation // scoped to room lifetime
 	bucket  *limit.Bucket
 	closing atomic.Bool
 	outMu sync.Mutex // guards sends and closing the writer channel
@@ -340,7 +340,7 @@ func (s *Server) handleConn(c net.Conn, br *bufio.Reader) {
 	ip := limit.IPKey(c.RemoteAddr()) // the per-IP slot was acquired by sniff
 	s.Metrics.Conns.Add(1)
 	cl := &client{srv: s, conn: c, ip: ip, out: make(chan []byte, 64), joined: map[*Room]bool{},
-		v3ByRoom: map[*Room]uint32{},
+		v3ByRoom: map[*Room]uint32{}, relays: map[*Room]*relay.Allocation{},
 		bucket: limit.NewBucket(s.cfg.MsgRate, s.cfg.MsgBurst, nil)}
 	done := make(chan struct{})
 	go cl.writer(done)
@@ -650,7 +650,7 @@ func (s *Server) onJoin(cl *client, m *Msg) {
 			fail("busy")
 			return
 		}
-		cl.allocs = append(cl.allocs, a)
+		cl.relays[r] = a
 		joined.RelayPort, joined.RelayToken = a.Port, hex.EncodeToString(a.ClientToken[:])
 		peer.RelayPort, peer.RelayToken = a.Port, hex.EncodeToString(a.HostToken[:])
 	}
@@ -680,6 +680,7 @@ func (s *Server) closeRoom(cl *client) {
 	delete(s.activeV3, r.HostV3)
 	cl.hosted = nil
 	members := make([]*client, 0, len(r.members))
+	allocs := make([]*relay.Allocation, 0, len(r.members))
 	for m := range r.members {
 		members = append(members, m)
 		if id, ok := m.v3ByRoom[r]; ok {
@@ -687,8 +688,13 @@ func (s *Server) closeRoom(cl *client) {
 			delete(m.v3ByRoom, r)
 		}
 		delete(m.joined, r)
+		if a := m.relays[r]; a != nil {
+			allocs = append(allocs, a)
+			delete(m.relays, r)
+		}
 	}
 	s.mu.Unlock()
+	for _, a := range allocs { a.Close() }
 	s.roomsIP.Release(cl.ip)
 	for _, m := range members {
 		m.send(Msg{T: "room_closed", Code: r.Code})
@@ -708,10 +714,11 @@ func (s *Server) drop(cl *client) {
 		}
 	}
 	cl.joined = map[*Room]bool{}
+	allocs := make([]*relay.Allocation, 0, len(cl.relays))
+	for _, a := range cl.relays { allocs = append(allocs, a) }
+	cl.relays = map[*Room]*relay.Allocation{}
 	s.mu.Unlock()
-	for _, a := range cl.allocs {
-		a.Close()
-	}
+	for _, a := range allocs { a.Close() }
 }
 
 // NewPID makes a random per-install player id (used by tests / tools).
