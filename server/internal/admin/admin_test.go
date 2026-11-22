@@ -1,11 +1,14 @@
 package admin
 
 import (
+    "bufio"
     "encoding/json"
+    "net"
     "net/http"
     "net/http/httptest"
     "strings"
     "testing"
+    "time"
 
     "ra2lobbyd/internal/lobby"
 )
@@ -97,4 +100,52 @@ func TestDashboardRejectsExternalClientsAndCrossSiteMutations(t *testing.T){
     if r:=request(h,"POST",path,strongToken,"https://example.org");r.Code!=http.StatusForbidden {t.Fatalf("cross-origin close: %d",r.Code)}
     if r:=request(h,"POST",path,strongToken,"http://127.0.0.1:8080");r.Code!=http.StatusNotFound {t.Fatalf("valid auth+origin returned %d",r.Code)}
     if r:=request(h,"POST","/admin/api/rooms/INVALID-ROOM/close",strongToken,"");r.Code!=http.StatusBadRequest {t.Fatalf("bad code returned %d",r.Code)}
+}
+
+ 
+func TestOperatorCanCloseWaitingRoomThroughAuthenticatedHTTP(t *testing.T) {
+    srv:=lobby.New(lobby.Config{MaxConnsPerIP:10})
+    listener,err:=net.Listen("tcp4","127.0.0.1:0")
+    if err!=nil {t.Fatal(err)}
+    defer listener.Close()
+    go func(){_ = srv.Serve(listener)}()
+    control,err:=net.Dial("tcp4",listener.Addr().String())
+    if err!=nil {t.Fatal(err)}
+    defer control.Close()
+    control.SetDeadline(time.Now().Add(3*time.Second))
+    reader:=bufio.NewReader(control)
+    send:=func(m lobby.Msg) {
+        b,e:=json.Marshal(m)
+        if e!=nil {t.Fatal(e)}
+        if _,e=control.Write(append(b,'\n'));e!=nil {t.Fatal(e)}
+    }
+    receive:=func() lobby.Msg {
+        line,e:=reader.ReadBytes('\n')
+        if e!=nil {t.Fatal(e)}
+        var m lobby.Msg
+        if e=json.Unmarshal(line,&m);e!=nil {t.Fatal(e)}
+        return m
+    }
+    send(lobby.Msg{T:"hello",Magic:lobby.Magic,Proto:lobby.ProtoMin,
+        Ver:"0.9.0",Sim:1,Rules:"1234abcd",Plat:1,PID:lobby.NewPID(),Nick:"OperatorTestHost"})
+    if m:=receive();m.T!="hello_ok" {t.Fatalf("hello refused: %+v",m)}
+    send(lobby.Msg{T:"create",Name:"Waiting Match",Max:2,V3:1456})
+    created:=receive()
+    if created.T!="created" || created.Code=="" {t.Fatalf("room creation failed: %+v",created)}
+    h,_:=New(srv,nil,nil,nil,strongToken)
+    listed:=request(h,"GET","/admin/api/rooms",strongToken,"")
+    if listed.Code!=http.StatusOK || !strings.Contains(listed.Body.String(),created.Code){
+        t.Fatalf("operator cannot see newly created room: %d %s",listed.Code,listed.Body.String())
+    }
+    path:="/admin/api/rooms/"+created.Code+"/close"
+    if status:=request(h,"POST",path,strongToken,"http://127.0.0.1:8080");status.Code!=http.StatusOK {
+        t.Fatalf("operator close failed: %d %s",status.Code,status.Body.String())
+    }
+    if event:=receive();event.T!="room_closed" || event.Code!=created.Code {
+        t.Fatalf("host not notified of operator closure: %+v",event)
+    }
+    if srv.RoomCount()!=0 {t.Fatalf("operator closure retained waiting room")}
+    if again:=request(h,"POST",path,strongToken,"");again.Code!=http.StatusNotFound {
+        t.Fatalf("repeated close must be not found, got %d",again.Code)
+    }
 }
