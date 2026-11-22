@@ -344,6 +344,11 @@ public:
         // The confirmation owns input. No default "yes" controller button
         // (a held A during reconnect must never approve a destructive action).
         if (confirm_.open()) {
+            if (nav.cancel) {
+                E ev; ev.kind = E::Key; ev.key = ra2engine::kKeyEscape;
+                ev.t_ms = now_ms; handle(ev);
+                return;
+            }
             const int n = confirm_.button_count();
             if (n <= 0) return;
             bool moved = false;
@@ -363,13 +368,14 @@ public:
                     handle(ev);
                 }
             }
-            if (nav.cancel) {
-                E ev; ev.kind = E::Key; ev.key = ra2engine::kKeyEscape;
-                ev.t_ms = now_ms; handle(ev);
-            }
             return;
         }
         gamepad_confirm_ix_ = -1;
+        if (nav.cancel) {
+            E ev; ev.kind = E::Key; ev.key = ra2engine::kKeyEscape;
+            ev.t_ms = now_ms; handle(ev);
+            return; // Back always wins over A on regular lobby pages
+        }
         const auto rows = buttons();
         std::vector<bool> enabled;
         for (const ShellButton& b : rows) enabled.push_back(b.enabled);
@@ -397,10 +403,6 @@ public:
                 handle(up);
                 gamepad_button_ix_ = -1;
             }
-        }
-        if (nav.cancel) {
-            E ev; ev.kind = E::Key; ev.key = ra2engine::kKeyEscape;
-            ev.t_ms = now_ms; handle(ev);
         }
     }
     Scene* next() override { Scene* n = next_; next_ = nullptr; return n; }

@@ -241,6 +241,7 @@ public:
             IE ev; ev.kind = IE::Key; ev.key = k; ev.t_ms = now_ms; handle(ev);
         };
         if (confirm_.open()) {
+            if (e.cancel) { key(ra2engine::kKeyEscape); return; }
             const int n = confirm_.button_count();
             if (n <= 0) return;
             bool moved = false;
@@ -256,7 +257,6 @@ public:
                 ev.y = d.y + d.h / 2; ev.t_ms = now_ms; handle(ev);
                 if (e.accept) { ev.kind = IE::PointerDown; ev.button = IE::Left; handle(ev); }
             }
-            if (e.cancel) key(ra2engine::kKeyEscape);
             return;
         }
         gamepad_confirm_ix_ = -1;

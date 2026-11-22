@@ -239,6 +239,7 @@
             gamepad_sidebar_focus_ = false;
             if (gf_abort_.open()) {
                 gamepad_confirm_was_open_ = true;
+                if (nav.cancel) { gamepad_key_escape(now_ms); return; }
                 const int n = gf_abort_.button_count();
                 if (n <= 0) return;
                 bool moved = false;
@@ -257,7 +258,6 @@
                         gamepad_pointer_at(ra2engine::InputEvent::PointerDown,
                                            ra2engine::InputEvent::Left, false, x, y, now_ms);
                 }
-                if (nav.cancel) gamepad_key_escape(now_ms);
                 return;
             }
             gamepad_confirm_ix_ = -1;

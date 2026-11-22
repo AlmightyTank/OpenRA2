@@ -8873,6 +8873,11 @@ public:
         }
         const auto e = shell_nav_.sample(pad.buttons);
         if (gf_confirm_.open()) {
+            if (e.cancel) {
+                IE ev; ev.kind = IE::Key; ev.key = ra2engine::kKeyEscape;
+                ev.t_ms = now; handle(ev);
+                return; // Cancel overrides an A press in the same frame
+            }
             const int n = gf_confirm_.button_count();
             if (n <= 0) return;
             bool moved = false;
@@ -8891,10 +8896,6 @@ public:
                     ev.kind = IE::PointerDown; ev.button = IE::Left;
                     handle(ev); // existing confirm handler; no automatic Yes
                 }
-            }
-            if (e.cancel) {
-                IE ev; ev.kind = IE::Key; ev.key = ra2engine::kKeyEscape;
-                ev.t_ms = now; handle(ev);
             }
             return;
         }
