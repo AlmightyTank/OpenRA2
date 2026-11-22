@@ -134,6 +134,10 @@ inline const ra2assets::MixFile& ra2_mix() { return mix_by_name("ra2.mix"); }
 // expansion mixes, cachemd.mix, conqmd.mix). Empty vector if not found in any.
 // Not cached (callers that repeat a file get a cached accessor below).
 inline std::vector<uint8_t> resolve_nested_bytes(const std::string& name) {
+    // CI has no proprietary game data. An absent archive is not a valid MIX:
+    // skip real-data cases via their existing bytes().empty() gate instead
+    // of attempting MixFile::open({}) and throwing "mix: too small".
+    if (!assets_available()) return {};
     const ra2assets::MixFile& top = top_mix();
     if (const ra2assets::MixEntry* e = top.find(ra2assets::mix_id(name)))
         return top.read(*e);
