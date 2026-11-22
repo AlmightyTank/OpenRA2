@@ -172,3 +172,22 @@ TEST_CASE("mcv: without the skirmish session / option the ConYard sale is a plai
     for (int f = 0; f < 5; ++f) w.step(1.0 / 15.0);
     CHECK(w.take_deploy_events().empty());
 }
+
+
+TEST_CASE("mcv: Yuri PCV deploys into YACNST without Soviet or Allied substitution") {
+    MCV_WORLD(w, x0, y0);
+    BuildingTypeDef yuri = conyard_def();
+    yuri.id = "YACNST";
+    w.set_building_types({yuri});
+    UnitCombat pcv = mcv_combat();
+    pcv.image = "PCV";
+    pcv.deploys_into = "YACNST";
+    w.add_combat_unit(x0 + 5, y0 + 5, 0, pcv);
+    REQUIRE(w.is_mcv(0));
+    REQUIRE(w.order_deploy_mcv(0));
+    const int b = run_until_deployed(w, 600);
+    REQUIRE(b >= 0);
+    CHECK(w.btypes()[(std::size_t)w.buildings()[(std::size_t)b].type].id == "YACNST");
+    CHECK(w.buildings()[(std::size_t)b].house == 0);
+    CHECK(w.units()[0].deployed_away);
+}
