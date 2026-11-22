@@ -309,7 +309,7 @@ int Platform::gamepad_count() const {
 
 GamepadState Platform::gamepad_state() const {
     GamepadState s;
-    if (!p_) return s;
+    if (!p_ || p_->background) return s; // never sample axes while suspended
     SDL_GameController* pad = p_->active_gamepad();
     if (!pad) return s;
     s.connected = true;
