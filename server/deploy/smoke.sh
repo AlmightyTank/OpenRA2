@@ -63,6 +63,14 @@ RA2_ADMIN_URL="$ADMIN" RA2_RELEASE_ROOT="$ROOT/releases-root" \
   bash server/deploy/release.sh stage "$BIN" "$ROOT/checksum" --apply >"$ROOT/staged"
 [[ -x "$ROOT/releases-root/current/ra2lobbyd" ]] ||
   { echo "staged release not available" >&2;exit 1; }
+# The systemd unit uses DynamicUser: parent/release directories must allow
+# traversal to a non-root account. Do not store secrets in this tree.
+for dir in "$ROOT/releases-root" "$ROOT/releases-root/releases" "$ROOT/releases-root/releases/smoke-v1"; do
+  [[ -x "$dir" ]] || { echo "release directory not traversable" >&2;exit 1; }
+  mode="$(stat -c %a "$dir")"
+  [[ "${mode: -1}" =~ [1357] ]] ||
+    { echo "release directory not traversable by DynamicUser (mode $mode)" >&2;exit 1; }
+done
 RA2_ADMIN_URL="$ADMIN" RA2_RELEASE_ROOT="$ROOT/releases-root" \
   RA2_MAINTENANCE_ACK=YES RA2_RELEASE_NAME=smoke-v2 \
   bash server/deploy/release.sh stage "$BIN" "$ROOT/checksum" --apply >>"$ROOT/staged"
