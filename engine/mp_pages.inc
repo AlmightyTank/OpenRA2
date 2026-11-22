@@ -2329,6 +2329,20 @@ private:
             update_status();
         }
     }
+    // Android can suspend the menu longer than the lobby TCP keepalive.
+    // Refresh or reconnect when the app becomes active, never auto-join a
+    // room from a stale response.
+    void on_foreground() override {
+        if (!link_) return;
+        const std::uint64_t now = ra2mp::now_ms();
+        link_->update(now);
+        if (link_->state() == ra2mp::ServerLink::State::Failed ||
+            link_->state() == ra2mp::ServerLink::State::Idle) {
+            if (!edits_[0].text.empty()) connect();
+        } else if (ready() && !join_pending_) {
+            refresh();
+        }
+    }
     bool body_key(const ra2engine::InputEvent& ev) override {
         if (ev.vk == 116) { refresh(); return true; } // F5
         if (focus_ >= 0) return false;
