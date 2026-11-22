@@ -23,6 +23,9 @@ func TestMultipleSimultaneousMatches(t *testing.T) {
 		hosts[i].send(Msg{T: "create", Name: "Match", Max: 4, V3: uint32(100 + i), Private: i == 1})
 		codes[i] = hosts[i].expect("created").Code
 	}
+	if st := s.Stats(); st.Total != 3 || st.Waiting != 3 || st.Private != 1 || st.Participants != 3 {
+		t.Fatalf("initial aggregate room metrics: %+v", st)
+	}
 	if s.RoomCount() != 3 || codes[0] == codes[1] || codes[1] == codes[2] || codes[0] == codes[2] {
 		t.Fatalf("three distinct rooms expected: %q", codes)
 	}
@@ -38,6 +41,9 @@ func TestMultipleSimultaneousMatches(t *testing.T) {
 			t.Fatalf("peer received for wrong match: %+v", got)
 		}
 	}
+	if st := s.Stats(); st.Total != 3 || st.Participants != 6 {
+		t.Fatalf("three concurrent 2-player matches must report six participants: %+v", st)
+	}
 	guests[0].send(Msg{T: "list"})
 	rooms := guests[0].expect("rooms").Rooms
 	if len(rooms) != 2 {
@@ -52,6 +58,9 @@ func TestMultipleSimultaneousMatches(t *testing.T) {
 	hosts[0].send(Msg{T: "update", Started: true, Players: 2})
 	hosts[0].send(Msg{T: "ping"})
 	hosts[0].expect("pong")
+	if st := s.Stats(); st.Started != 1 || st.Waiting != 2 {
+		t.Fatalf("started/waiting match counts incorrect: %+v", st)
+	}
 	probe := dial(t, addr)
 	probe.send(hello("Probe"))
 	probe.expect("hello_ok")
