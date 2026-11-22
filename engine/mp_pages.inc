@@ -2158,32 +2158,62 @@ private:
 class MpOnlineScene : public MpPage {
 public:
     MpOnlineScene(const Rules& r, bool na, const MenuArt& a) : MpPage(r, na, a) {
-        ra2engine::os_android_bind_lan(false);   // W9-04-10: the server is reached over the default network
+        ra2engine::os_android_bind_lan(false); // Internet uses the default network
         prefs_ = mpui::Prefs::load();
         edits_.push_back(mpui::Edit{"server", {130, 40, 220, 19}, prefs_.server, 64, true});
-        edits_.back().ime = ra2engine::kOsImeUri;    // W9-04-14
+        edits_.back().ime = ra2engine::kOsImeUri;
         edits_.push_back(mpui::Edit{"nick", {130, 64, 160, 19}, prefs_.nick, 16, true});
         edits_.push_back(mpui::Edit{"code", {130, 404, 90, 19}, "", 6, true});
         edits_.back().ime = ra2engine::kOsImeCode;
-        list_.r = {30, 120, 440, 268};
-        list_.visible = 16;
+        edits_.push_back(mpui::Edit{"search", {130, 88, 324, 19}, "", 48, true});
+        list_.r = {30, 152, 440, 236};
+        list_.visible = 14;
         link_ = std::make_unique<ra2mp::ServerLink>();
+        local_rules_ = ra2mp::room_rules_hex(mpui::rules_crc());
         if (!prefs_.server.empty()) connect();
-        else status_ = "Type the address of your game server and press Connect.";   // W9-03-17
+        else status_ = "Type your game server address and press Connect.";
     }
     const char* name() const override { return "mp-online"; }
 
 private:
-    enum Act { A_NONE, A_CONNECT, A_HOST, A_HOSTPRIV, A_JOIN, A_JOINCODE, A_BACK };
+    enum Act { A_NONE, A_CONNECT, A_HOST, A_HOSTPRIV, A_JOIN, A_JOINCODE, A_BACK, A_REFRESH };
+    static ra2engine::SbRect filter_rect(int n) {
+        switch (n) {
+            case 0: return {30, 113, 72, 19};
+            case 1: return {109, 113, 72, 19};
+            case 2: return {188, 113, 100, 19};
+            default: return {359, 113, 111, 19};
+        }
+    }
     bool ready() const { return link_ && link_->state() == ra2mp::ServerLink::State::Ready; }
+    const ra2mp::ServerRoom* selected_room() const {
+        if (!link_ || list_.sel < 0 || static_cast<std::size_t>(list_.sel) >= visible_.size()) return nullptr;
+        const std::size_t i = visible_[static_cast<std::size_t>(list_.sel)];
+        return i < link_->rooms().size() ? &link_->rooms()[i] : nullptr;
+    }
+    bool selected_joinable() const {
+        const auto* r = selected_room();
+        return r && ra2mp::room_joinable(*r, ra2mp::sim_version(), local_rules_);
+    }
     std::vector<ShellButton> buttons() const override {
-        return {btn(0, "Connect", !edits_[0].text.empty(), A_CONNECT), btn(1, "Host Game", ready(), A_HOST),
-                btn(2, "Host Private", ready(), A_HOSTPRIV), btn(3, "Join Game", ready() && list_.sel >= 0, A_JOIN),
-                btn(4, "Join Code", ready() && edits_[2].text.size() == 6, A_JOINCODE), btn(5, "Back", true, A_BACK)};
+        return {btn(0, "Connect", !edits_[0].text.empty(), A_CONNECT),
+                btn(1, "Host Game", ready() && !join_pending_, A_HOST),
+                btn(2, "Host Private", ready() && !join_pending_, A_HOSTPRIV),
+                btn(3, "Join Game", ready() && !join_pending_ && selected_joinable(), A_JOIN),
+                btn(4, "Join Code", ready() && !join_pending_ && edits_[2].text.size() == 6, A_JOINCODE),
+                btn(5, "Back", true, A_BACK)};
     }
     std::string header_text() const override { return "Internet"; }
     int back_action() const override { return A_BACK; }
     void connect() {
+        selected_code_.clear();
+        visible_.clear();
+        list_.items.clear();
+        list_.data.clear();
+        list_.sel = -1;
+        list_.top = 0;
+        join_pending_ = false;
+        last_list_ = 0;
         prefs_.server = edits_[0].text;
         const std::string n = ra2mp::sanitize_name(edits_[1].text);
         if (!n.empty()) prefs_.nick = n;
@@ -2201,26 +2231,79 @@ private:
         if (!link_->connect(prefs_.server, h)) server_failed(link_->error());
         mpui::log_line("connecting to server " + prefs_.server);
     }
-    void join(const std::string& code) {
+    void refresh() {
         if (!ready()) return;
+        link_->list();
+        last_list_ = ra2mp::now_ms();
+        if (!join_pending_) status_ = "Refreshing the room directory...";
+    }
+    void join(const std::string& code) {
+        if (!ready() || join_pending_) return;
+        if (code.size() != 6) {
+            status_ = "Enter a 6-character room code.";
+            return;
+        }
         pending_v3_ = mpui::random_u32();
+        if (!pending_v3_) pending_v3_ = 1;
         pending_code_ = code;
         for (char& c : pending_code_) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        join_pending_ = true;
         link_->join(pending_code_, pending_v3_);
         status_ = "Joining room " + pending_code_ + "...";
+    }
+    void update_status() {
+        if (!ready() || join_pending_) return;
+        status_ = "Showing " + std::to_string(visible_.size()) + " of " +
+                  std::to_string(link_->rooms().size()) + " rooms. F5 refreshes.";
+    }
+    void rebuild_rooms() {
+        if (!link_) return;
+        const std::vector<ra2mp::ServerRoom>& rooms = link_->rooms();
+        visible_ = ra2mp::browse_rooms(rooms, edits_[3].text, filter_, ra2mp::sim_version(), local_rules_);
+        list_.items.clear();
+        list_.data.clear();
+        for (std::size_t src : visible_) {
+            const ra2mp::ServerRoom& r = rooms[src];
+            const bool compatible = ra2mp::room_compatible(r, ra2mp::sim_version(), local_rules_);
+            const std::string tag = r.started ? "PLAYING" : !ra2mp::room_open(r) ? "FULL" :
+                                    compatible ? "READY" : "MISMATCH";
+            std::string row = "[" + tag + "] " + std::to_string(r.players) + "/" + std::to_string(r.max) +
+                              "  " + r.name + " - " + r.map;
+            row += mpui::platform_tag(static_cast<std::uint8_t>(r.plat), false);
+            list_.items.push_back(std::move(row));
+            list_.data.push_back(static_cast<int>(src));
+        }
+        list_.sel = ra2mp::find_browsed_room(rooms, visible_, selected_code_);
+        if (list_.sel < 0) selected_code_.clear();
+        list_.clamp_top();
+        if (list_.sel >= 0) list_.reveal(list_.sel);
+    }
+    void change_filter(ra2mp::RoomBrowseFilter next) {
+        if (filter_ == next) return;
+        filter_ = next;
+        rebuild_rooms();
+        update_status();
+        play_ui("menu:click");
     }
     void press(int act) override {
         switch (act) {
             case A_CONNECT: connect(); return;
+            case A_REFRESH: refresh(); return;
             case A_HOST:
             case A_HOSTPRIV:
-                next_ = MpLobbyScene::host(rules_, no_audio_, art_, MpLobbyScene::ONLINE, std::move(link_), act == A_HOSTPRIV);
+                if (!ready() || join_pending_) return;
+                next_ = MpLobbyScene::host(rules_, no_audio_, art_, MpLobbyScene::ONLINE,
+                                          std::move(link_), act == A_HOSTPRIV);
                 return;
-            case A_JOIN:
-                if (list_.sel >= 0 && list_.sel < static_cast<int>(link_->rooms().size()))
-                    join(link_->rooms()[static_cast<std::size_t>(list_.sel)].code);
+            case A_JOIN: {
+                const auto* r = selected_room();
+                if (!r || !ready() || join_pending_) return;
+                const std::string reason = ra2mp::room_join_reason(*r, ra2mp::sim_version(), local_rules_);
+                if (reason.empty()) join(r->code);
+                else status_ = reason;
                 return;
-            case A_JOINCODE: join(edits_[2].text); return;
+            }
+            case A_JOINCODE: join(edits_[2].text); return; // private rooms still work
             case A_BACK:
                 next_ = new ShellScene(rules_, no_audio_, art_, PAGE_MAIN);
                 return;
@@ -2232,6 +2315,35 @@ private:
         const std::string& id = edits_[static_cast<std::size_t>(edit)].id;
         if (id == "server") connect();
         else if (id == "code" && edits_[2].text.size() == 6) join(edits_[2].text);
+        else if (id == "search") {
+            rebuild_rooms();
+            update_status();
+        }
+    }
+    void edit_changed(int edit) override {
+        if (edit == 3) {
+            rebuild_rooms();
+            update_status();
+        }
+    }
+    bool body_key(const ra2engine::InputEvent& ev) override {
+        if (ev.vk == 116) { refresh(); return true; } // F5
+        if (focus_ >= 0) return false;
+        if (ev.key == ra2engine::kKeyUp || ev.key == ra2engine::kKeyDown) {
+            if (visible_.empty()) return true;
+            const int delta = ev.key == ra2engine::kKeyDown ? 1 : -1;
+            list_.sel = std::max(0, std::min(static_cast<int>(visible_.size()) - 1,
+                                list_.sel < 0 ? (delta > 0 ? 0 : static_cast<int>(visible_.size()) - 1)
+                                              : list_.sel + delta));
+            selected_code_ = link_->rooms()[visible_[static_cast<std::size_t>(list_.sel)]].code;
+            list_.reveal(list_.sel);
+            return true;
+        }
+        if (ev.key == ra2engine::kKeyEnter && selected_room()) {
+            press(A_JOIN);
+            return true;
+        }
+        return false;
     }
     void tick(std::uint64_t now) override {
         if (!link_) return;
@@ -2243,57 +2355,70 @@ private:
                 case ra2mp::ServerEvent::HelloOk:
                     status_ = "Connected to " + link_->server_name() + ".";
                     mpui::log_line("connected: " + link_->server_name());
-                    link_->list();
-                    last_list_ = now;
+                    refresh();
+                    break;
+                case ra2mp::ServerEvent::Rooms:
+                    rebuild_rooms();
+                    update_status();
                     break;
                 case ra2mp::ServerEvent::Rejected:
+                    join_pending_ = false;
                     status_ = link_->error();
                     failure_told_ = true;
                     ask(0, "The game server refused the connection: " + link_->error(), {gf_csf("TXT_OK", "OK")});
                     break;
                 case ra2mp::ServerEvent::Joined:
                     mpui::log_line("joined room " + ev.code + " host tunnel id " + std::to_string(ev.host_v3));
-                    next_ = MpLobbyScene::join_online(rules_, no_audio_, art_, std::move(link_), pending_v3_, ev.host_v3, ev.code);
+                    next_ = MpLobbyScene::join_online(rules_, no_audio_, art_, std::move(link_),
+                                                      pending_v3_, ev.host_v3, ev.code);
                     return;
                 case ra2mp::ServerEvent::Error: {
+                    join_pending_ = false;
                     static const std::map<std::string, std::string> kWhy = {
-                        {"no_room", "No room with that code."}, {"full", "That game is full."},
-                        {"started", "That game has already started."},
-                        {"version", "That game uses a different game version or game data."},
+                        {"no_room", "No room with that code."}, {"full", "That match is full."},
+                        {"started", "That match has already started."},
+                        {"version", "That match uses different engine or game data."},
+                        {"v3_taken", "Tunnel ID collision; retry joining."},
+                        {"already", "Already joined this room."},
+                        {"bad_request", "Invalid room code or request."},
+                        {"relay_unavailable", "This relay mode is unavailable."},
                         {"rate", "Too many attempts: wait a minute."}, {"busy", "The server is busy."}};
                     const auto it = kWhy.find(ev.reason);
                     status_ = it != kWhy.end() ? it->second : "The server said: " + ev.reason;
-                    ask(0, status_, {gf_csf("TXT_OK", "OK")});   // W9-03-18: a message box, like WOL's
+                    ask(0, status_, {gf_csf("TXT_OK", "OK")});
                     break;
                 }
-                case ra2mp::ServerEvent::Disconnected: server_failed(link_->error()); break;
+                case ra2mp::ServerEvent::Disconnected:
+                    join_pending_ = false;
+                    server_failed(link_->error());
+                    break;
                 default: break;
             }
         }
-        if (link_->state() == ra2mp::ServerLink::State::Failed && !link_->error().empty()) server_failed(link_->error());
-        if (ready() && now - last_list_ >= 5000) {
-            link_->list();
-            last_list_ = now;
-        }
-        list_.items.clear();
-        list_.data.clear();
-        for (const ra2mp::ServerRoom& r : link_->rooms()) {
-            std::string row = r.name + "  -  " + r.map + "  " + std::to_string(r.players) + "/" + std::to_string(r.max);
-            if (r.started) row += "  (started)";
-            row += mpui::platform_tag(static_cast<std::uint8_t>(r.plat), false);   // W9-04-13
-            list_.items.push_back(row);
-            list_.data.push_back(0);
-        }
-        if (list_.sel >= static_cast<int>(list_.items.size())) list_.sel = -1;
+        if (link_->state() == ra2mp::ServerLink::State::Failed && !link_->error().empty())
+            server_failed(link_->error());
+        if (ready() && !join_pending_ && (now < last_list_ || now - last_list_ >= 5000))
+            refresh();
     }
     bool body_modal(int lx, int ly) override {
+        if (filter_rect(0).contains(lx, ly)) { change_filter(ra2mp::RoomBrowseFilter::All); return true; }
+        if (filter_rect(1).contains(lx, ly)) { change_filter(ra2mp::RoomBrowseFilter::Open); return true; }
+        if (filter_rect(2).contains(lx, ly)) { change_filter(ra2mp::RoomBrowseFilter::Joinable); return true; }
+        if (filter_rect(3).contains(lx, ly)) { refresh(); play_ui("menu:click"); return true; }
         if (list_.scrolls() && list_.strip_up().contains(lx, ly)) { list_.scroll(-1); return true; }
         if (list_.scrolls() && list_.strip_down().contains(lx, ly)) { list_.scroll(1); return true; }
         const int i = list_.hit(lx, ly);
-        if (i >= 0) { list_.sel = i; play_ui("menu:click"); return true; }
+        if (i >= 0 && static_cast<std::size_t>(i) < visible_.size()) {
+            list_.sel = i;
+            const auto& r = link_->rooms()[visible_[static_cast<std::size_t>(i)]];
+            selected_code_ = r.code;
+            const std::string reason = ra2mp::room_join_reason(r, ra2mp::sim_version(), local_rules_);
+            status_ = reason.empty() ? "Ready to join " + r.name + "." : reason;
+            play_ui("menu:click");
+            return true;
+        }
         return false;
     }
-    // W9-04-05/-06: drag-scroll the game list; its strip widens on touch.
     void body_pan(const ra2engine::InputEvent& ev, int sx, int sy, int, int) override {
         if (list_.r.contains(sx, sy)) list_pan(list_, ev);
     }
@@ -2301,34 +2426,82 @@ private:
     void draw_body(const ShellPainter& p, ra2engine::TextureCache&) override {
         p.label("Server", 30, 40, 95, 19, 0);
         p.label("Your name", 30, 64, 95, 19, 0);
-        if (link_ && ready()) p.label(p.fit(link_->motd(), 440), 30, 90, 440, 16, 0);
-        p.header("Public games", 30, 104, 440, 16);
+        p.label("Search", 30, 88, 95, 19, 0);
+        const std::string labels[] = {"All", "Open", "Joinable", "Refresh"};
+        for (int k = 0; k < 4; ++k) {
+            const ra2engine::SbRect rect = filter_rect(k);
+            const bool selected = k < 3 && static_cast<int>(filter_) == k;
+            if (selected) p.fill(p.dev(rect), 90, 0, 0);
+            p.frame(p.dev(rect), k == 3 ? ready() : true);
+            p.label(labels[k], rect.x + 2, rect.y, rect.w - 4, rect.h, 1, k == 3 ? ready() : true);
+        }
+        p.header("Public games: " + std::to_string(visible_.size()) + "/" +
+                 std::to_string(link_ ? link_->rooms().size() : 0), 30, 134, 440, 16);
         list_.draw(p);
+        if (list_.items.empty()) {
+            p.label(ready() ? "No matching public rooms. Try All or clear Search."
+                            : "Connect to a server to browse rooms.",
+                    36, 172, 420, 19, 0);
+        }
         p.label("Room code", 30, 404, 95, 19, 0);
-        p.label("Private games are joined by their 6-letter code.", 230, 404, 240, 19, 0);
-        text_block(p, "Internet games run through your own server. All traffic is relayed: players never see each "
-                      "other's IP address.", 486, 40, 144, 8);
+        p.label("Private games: enter the 6-character code.", 230, 404, 240, 19, 0);
+        if (link_ && ready() && !link_->motd().empty())
+            text_block(p, "Server: " + link_->motd(), 486, 40, 144, 4);
+        const auto* r = selected_room();
+        if (r) {
+            p.header("Selected room", 486, 109, 144, 17);
+            p.label(p.fit(r->name, 140), 486, 129, 144, 16, 0);
+            p.label(p.fit("Host: " + r->host, 140), 486, 146, 144, 16, 0);
+            p.label(p.fit("Map: " + r->map, 140), 486, 163, 144, 16, 0);
+            p.label(std::to_string(r->players) + "/" + std::to_string(r->max) + " players", 486, 180, 140, 16, 0);
+        } else {
+            text_block(p, "Choose a room or join a private match by code. "
+                          "The Joinable filter checks build and game data.",
+                          486, 110, 144, 5);
+        }
+    }
+    std::string hover_tip(int lx, int ly) const override {
+        if (filter_rect(0).contains(lx, ly)) return "Show every public room.";
+        if (filter_rect(1).contains(lx, ly)) return "Show waiting rooms with an open slot.";
+        if (filter_rect(2).contains(lx, ly))
+            return "Show open rooms with the same game build and data.";
+        if (filter_rect(3).contains(lx, ly)) return "Request a new room list from the server.";
+        if (list_.r.contains(lx, ly))
+            return "Choose a room. READY rooms are joinable; FULL, PLAYING and MISMATCH are not.";
+        return {};
     }
     void body_targets(std::map<std::string, ra2engine::SbRect>& t) const override {
-        for (int i = list_.top; i < list_.top + list_.rows(); ++i) t["room:" + std::to_string(i)] = list_.item_rect(i);
+        for (int i = list_.top; i < list_.top + list_.rows(); ++i)
+            t["room:" + std::to_string(i)] = list_.item_rect(i);
+        t["filter:all"] = filter_rect(0);
+        t["filter:open"] = filter_rect(1);
+        t["filter:joinable"] = filter_rect(2);
+        t["button:Refresh Rooms"] = filter_rect(3);
     }
     void body_probe(ra2play::Probe& p) override {
         static const char* kSt[6] = {"idle", "resolving", "connecting", "hello", "ready", "failed"};
         p.set_s("online_state", link_ ? kSt[static_cast<int>(link_->state())] : "moved");
         p.set("rooms", link_ ? static_cast<double>(link_->rooms().size()) : 0.0);
+        p.set("visible_rooms", static_cast<double>(visible_.size()));
+        p.set("room_sel", list_.sel);
+        p.set("join_pending", join_pending_ ? 1 : 0);
+        p.set_s("online_filter", filter_ == ra2mp::RoomBrowseFilter::All ? "all" :
+                                  filter_ == ra2mp::RoomBrowseFilter::Open ? "open" : "joinable");
+        p.set_s("online_query", edits_[3].text);
+        p.set_s("online_selected_code", selected_code_);
         if (link_) {
+            // Preserve the historical probe: unfiltered server indices.
             for (std::size_t i = 0; i < link_->rooms().size(); ++i)
                 p.set_s("room_code(" + std::to_string(i) + ")", link_->rooms()[i].code);
+            for (std::size_t i = 0; i < visible_.size(); ++i)
+                p.set_s("visible_room_code(" + std::to_string(i) + ")", link_->rooms()[visible_[i]].code);
             p.set_s("server_name", link_->server_name());
             p.set_s("motd", link_->motd());
             p.set_s("online_error", link_->error());
         }
     }
-
-    // W9-03-18: a server failure is a message box with a full sentence (the
-    // original's WOL errors are message boxes, e.g. TXT_WOL_CONNLOST); the
-    // status line keeps the short reason.
     void server_failed(const std::string& why) {
+        join_pending_ = false;
         status_ = why;
         if (failure_told_ || confirm_.open()) return;
         failure_told_ = true;
@@ -2341,7 +2514,11 @@ private:
     mpui::Prefs prefs_;
     std::unique_ptr<ra2mp::ServerLink> link_;
     ShellList list_;
+    ra2mp::RoomBrowseFilter filter_ = ra2mp::RoomBrowseFilter::All;
+    std::vector<std::size_t> visible_;
+    std::string selected_code_, local_rules_;
     bool failure_told_ = false;
+    bool join_pending_ = false;
     std::uint64_t last_list_ = 0;
     std::uint32_t pending_v3_ = 0;
     std::string pending_code_;
