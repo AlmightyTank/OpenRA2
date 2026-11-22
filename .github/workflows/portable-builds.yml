@@ -1,0 +1,141 @@
+name: Portable builds (Windows / Android / iOS)
+
+on:
+  push:
+    branches:
+      - feature/android-gamepad-v0.1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Superseded builds may be cancelled; manual runs are independent by run ID.
+concurrency:
+  group: portable-builds-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'push' }}
+  cancel-in-progress: true
+
+jobs:
+  windows-portable:
+    name: Windows x64 portable ZIP
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - name: Check out exact commit
+        uses: actions/checkout@v4
+      - name: Install MinGW-w64, Ninja and CMake
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          path-type: inherit
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-binutils
+      - name: Build, verify and package Windows executables
+        shell: msys2 {0}
+        run: |
+          export PATH="/mingw64/bin:$PATH"
+          pwsh -NoProfile -File scripts/package-win.ps1 -Build build-win -Out dist -Configure
+          ls -la dist/
+      - name: Verify portable ZIP was generated
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem -Path dist -Filter 'ra2engine-*-win64.zip' -File)
+          if ($files.Count -ne 1) { throw "Expected exactly one Windows portable zip, found $($files.Count)" }
+          if ($files[0].Length -lt 1000000) { throw "Windows package unexpectedly small: $($files[0].Length)" }
+          Write-Host "Verified $($files[0].FullName) ($($files[0].Length) bytes)"
+      - name: Upload Windows portable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenRA2-Windows-portable-${{ github.sha }}
+          path: dist/ra2engine-*-win64.zip
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  android-apk:
+    name: Android debug APK (arm64 and x86_64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out exact commit
+        uses: actions/checkout@v4
+      - name: Install Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Configure Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install SDK 35, NDK r27c and CMake
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1'
+          test -d "$ANDROID_HOME/ndk/27.2.12479018"
+          test -d "$ANDROID_HOME/cmake/3.22.1"
+      - name: Build APK with the repository Gradle wrapper
+        working-directory: android
+        run: |
+          bash ./gradlew --no-daemon --stacktrace --max-workers=2 \
+            -Pra2.jobs=2 :app:assembleDebug
+      - name: Validate APK package and native libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$apk"
+          unzip -l "$apk" | grep -Eq 'lib/arm64-v8a/[^ ]+\.so'
+          unzip -l "$apk" | grep -Eq 'lib/x86_64/[^ ]+\.so'
+          mkdir -p dist/android
+          cp "$apk" "dist/android/OpenRA2-Android-debug-${GITHUB_SHA:0:7}.apk"
+          ls -lh dist/android/
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenRA2-Android-debug-${{ github.sha }}
+          path: dist/android/*.apk
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  ios-unsigned:
+    name: iOS device app (unsigned; not an IPA)
+    runs-on: xcode-27
+    timeout-minutes: 90
+    steps:
+      - name: Check out exact commit
+        uses: actions/checkout@v4
+      - name: Inspect Xcode and Swift toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+          xcrun --sdk iphoneos --show-sdk-path
+      - name: Install the existing xtool iOS builder
+        run: |
+          brew install xtool-org/tap/xtool
+          xtool --version
+      - name: Build unsigned iPhone/iPad ARM64 app without proprietary assets
+        run: |
+          bash ios/scripts/build.sh --release --no-game-data
+          test -f xtool/RA2Engine.app/Info.plist
+          test ! -e xtool/RA2Engine.app/GameData/ra2.mix
+      - name: Verify and archive app bundle
+        run: |
+          set -euo pipefail
+          app=xtool/RA2Engine.app
+          bundle_id=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")
+          test "$bundle_id" = 'org.ra2.engine'
+          mkdir -p dist/ios
+          ditto -c -k --keepParent "$app" "dist/ios/OpenRA2-iOS-unsigned-${GITHUB_SHA:0:7}.app.zip"
+          test -s "dist/ios/OpenRA2-iOS-unsigned-${GITHUB_SHA:0:7}.app.zip"
+          du -h dist/ios/*
+      - name: Upload unsigned iOS app archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenRA2-iOS-unsigned-${{ github.sha }}
+          path: dist/ios/*.zip
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
