@@ -498,6 +498,80 @@ TEST_CASE("mp: lobby through a CnCNet V3 tunnel (8-byte LE header)") {
     CHECK(th.rtt_ms() >= 0);
 }
 
+TEST_CASE("mp: S0.1D Windows and Android identities join through real V3 UDP in both directions") {
+    for (int hostPlatform : {1, 2}) {
+        UdpSocket relay;
+        REQUIRE(relay.open(0));
+        const Addr relayAddr{kLoopback, relay.local_port()};
+        std::map<std::uint32_t, Addr> endpoints;
+        auto serviceRelay = [&]() {
+            std::uint8_t bytes[2048] = {};
+            Addr from;
+            for (int count; (count = relay.recv_from(from, bytes, sizeof bytes)) > 0;) {
+                std::uint32_t sender = 0, receiver = 0;
+                const std::uint8_t* payload = nullptr;
+                std::size_t payloadSize = 0;
+                if (count == 50 && bytes[0] == 0 && bytes[4] == 0) {
+                    relay.send_to(from, bytes, 12);
+                    continue;
+                }
+                if (!ra2::net::tunnel_unwrap(ra2::net::TunnelMode::V3, bytes,
+                                            static_cast<std::size_t>(count),
+                                            &sender, &receiver, &payload, &payloadSize) || sender == 0)
+                    continue;
+                endpoints[sender] = from;
+                const auto destination = endpoints.find(receiver);
+                if (destination != endpoints.end())
+                    relay.send_to(destination->second, bytes, static_cast<std::size_t>(count));
+            }
+        };
+
+        MpNet hostSocket, guestSocket;
+        const std::uint32_t hostID = 0x1A000001u + static_cast<std::uint32_t>(hostPlatform);
+        const std::uint32_t guestID = 0x2B000001u + static_cast<std::uint32_t>(hostPlatform);
+        REQUIRE(hostSocket.open_tunnel(relayAddr, hostID));
+        REQUIRE(guestSocket.open_tunnel(relayAddr, guestID));
+        auto hostIdentity = ident("DesktopHost", 1);
+        hostIdentity.platform = static_cast<std::uint8_t>(hostPlatform);
+        auto guestIdentity = ident("MobileGuest", 2);
+        guestIdentity.platform = static_cast<std::uint8_t>(hostPlatform == 1 ? 2 : 1);
+        MpLobbyModel model = host_model();
+        model.opt.cross_platform = true;
+        LobbyHost host(hostSocket, hostIdentity, model);
+        LobbyClient guest(guestSocket, peer_of_v3(hostID), guestIdentity);
+
+        bool joined = false;
+        for (int i = 0; i < 600 && !joined; ++i) {
+            const std::uint64_t now = now_ms();
+            host.update(now);
+            serviceRelay();
+            guest.update(now);
+            serviceRelay();
+            joined = guest.state() == LobbyClient::State::Joined && guest.rev() == host.rev();
+            if (!joined) {
+                const std::uint64_t until = now_ms() + 5;
+                while (now_ms() < until) {}
+            }
+        }
+        REQUIRE(joined);
+        CHECK(host.peer_of_slot(1) == peer_of_v3(guestID));
+        CHECK(guest.model().opt.cross_platform);
+
+        // A resume refresh must not change the peer ID or destroy the lobby.
+        guestSocket.refresh_tunnel(now_ms());
+        serviceRelay();
+        for (int i = 0; i < 30; ++i) {
+            const std::uint64_t now = now_ms();
+            host.update(now);
+            serviceRelay();
+            guest.update(now);
+            serviceRelay();
+        }
+        CHECK(guest.state() == LobbyClient::State::Joined);
+        CHECK(host.members() == 1);
+    }
+}
+
 TEST_CASE("mp: NET-PLAY platform tag -- mixed platforms need the cross-platform option") {
     std::uint64_t t = 0;
     MemNet hub(t);
