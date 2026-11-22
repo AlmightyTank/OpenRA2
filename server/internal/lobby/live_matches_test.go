@@ -5,6 +5,7 @@ import (
     "encoding/binary"
     "fmt"
     "net"
+    "sync"
     "testing"
     "time"
 
@@ -145,5 +146,87 @@ func TestLiveConcurrentV3Matches(t *testing.T) {
         if i==1 {continue}
         m.peers[0].link.send(Msg{T:"ping"})
         m.peers[0].link.expect("pong")
+    }
+}
+
+ 
+// Concurrent traffic test: all eight UDP endpoints are active at the SAME
+// time. Every endpoint sends game-like bytes and receives from its partner;
+// packet headers and payloads are checked for accidental cross-room mixing.
+func TestLiveParallelV3TrafficAcrossFourMatches(t *testing.T) {
+    _, address := startServer(t, Config{MaxRoomsPerIP: 8,MaxConnsPerIP: 20,JoinsPerMinute: 80})
+    v3 := tunnel.NewV3(tunnel.Config{AllowLoopback:true,IPLimit:24,MaxClients:24})
+    udpServer,err:=net.ListenUDP("udp4",&net.UDPAddr{IP:net.IPv4(127,0,0,1)})
+    if err!=nil {t.Fatal(err)}
+    t.Cleanup(func(){udpServer.Close()})
+    go func(){_ = tunnel.Serve(udpServer,v3,time.Second)}()
+    serverAddr:=udpServer.LocalAddr().(*net.UDPAddr)
+    type endpoint struct{ socket *net.UDPConn; id uint32 }
+    type pair struct{ host, guest endpoint }
+    pairs:=make([]pair,4)
+    for index:=range pairs {
+        host:=dial(t,address)
+        host.send(hello(fmt.Sprintf("Host%d",index)));host.expect("hello_ok")
+        hid:=uint32(index*2+10001)
+        host.send(Msg{T:"create",Name:fmt.Sprintf("Concurrent%d",index),Max:2,V3:hid})
+        roomCode:=host.expect("created").Code
+        guest:=dial(t,address)
+        guest.send(hello(fmt.Sprintf("Guest%d",index)));guest.expect("hello_ok")
+        gid:=hid+1
+        guest.send(Msg{T:"join",Code:roomCode,V3:gid})
+        guest.expect("joined");host.expect("peer")
+        hs,e:=net.ListenUDP("udp4",&net.UDPAddr{IP:net.IPv4(127,0,0,1)})
+        if e!=nil {t.Fatal(e)}
+        gs,e:=net.ListenUDP("udp4",&net.UDPAddr{IP:net.IPv4(127,0,0,1)})
+        if e!=nil {hs.Close();t.Fatal(e)}
+        t.Cleanup(func(){hs.Close();gs.Close()})
+        pairs[index]=pair{host:endpoint{hs,hid},guest:endpoint{gs,gid}}
+    }
+    // Register all IDs before starting the packet burst, avoiding test
+    // dependence on registration ordering.
+    for _,p:=range pairs {
+        for _,e:=range []endpoint{p.host,p.guest} {
+            packet:=append(tunnel.V3Header(e.id,0xFFFFFFFE),byte('R'))
+            if _,err:=e.socket.WriteToUDP(packet,serverAddr);err!=nil {t.Fatal(err)}
+        }
+    }
+    deadline:=time.Now().Add(3*time.Second)
+    for v3.Clients()!=8 && time.Now().Before(deadline) {time.Sleep(10*time.Millisecond)}
+    if v3.Clients()!=8 {t.Fatalf("expected 8 V3 endpoints, got %d",v3.Clients())}
+
+    const rounds=20
+    start:=make(chan struct{})
+    var wg sync.WaitGroup
+    errs:=make(chan error,8)
+    for index,p:=range pairs {
+        run:=func(group int,self,other endpoint) {
+            defer wg.Done()
+            <-start
+            buf:=make([]byte,256)
+            for round:=0;round<rounds;round++ {
+                payload:=[]byte(fmt.Sprintf("match-%d-round-%02d",group,round))
+                sent:=append(tunnel.V3Header(self.id,other.id),payload...)
+                if _,err:=self.socket.WriteToUDP(sent,serverAddr);err!=nil {
+                    errs<-fmt.Errorf("group %d send round %d: %w",group,round,err);return
+                }
+                self.socket.SetReadDeadline(time.Now().Add(2*time.Second))
+                n,_,err:=self.socket.ReadFromUDP(buf)
+                expected:=append(tunnel.V3Header(other.id,self.id),payload...)
+                if err!=nil || !bytes.Equal(buf[:n],expected) {
+                    errs<-fmt.Errorf("group %d round %d received %x expected %x: %v",group,round,buf[:n],expected,err);return
+                }
+            }
+        }
+        wg.Add(2)
+        go run(index,p.host,p.guest)
+        go run(index,p.guest,p.host)
+    }
+    close(start)
+    wg.Wait()
+    close(errs)
+    for err:=range errs {t.Error(err)}
+    if t.Failed(){return}
+    if got:=v3.Stats.Forwarded.Load();got!=8*rounds {
+        t.Fatalf("concurrent V3 forwarded %d datagrams, want %d",got,8*rounds)
     }
 }
