@@ -5974,7 +5974,7 @@ int run_scene_driver(ra2engine::Platform& plat, ra2engine::TextureCache& tc, Sce
         net_linger_pump();   // NET-PLAY
         // Only interactive hardware sessions sample real controller state.
         // --play, input recordings/replay, fixed-dt gates stay deterministic.
-        if (!src && !hooks && fixed_dt <= 0.0 && !replay)
+        if (!src && !hooks && !rec && fixed_dt <= 0.0 && !replay)
             scene->gamepad_frame(plat.gamepad_state(), now);
         scene->update(dt);
         const Uint64 pc2 = SDL_GetPerformanceCounter();
