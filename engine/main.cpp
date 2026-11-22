@@ -87,6 +87,7 @@ static char* ra2_cli_pref_path() {
 #include "platform.hpp"
 #include "gamepad_cursor.hpp"
 #include "gamepad_commands.hpp"
+#include "gamepad_navigation.hpp"
 #include "platform_os.hpp"   // W2-AR-22 registry / folder picker / console
 #include "os_profiler.hpp"   // R-171 dev sampling profiler (RA2_PROFILE)
 #include <functional>        // W2-AR-10 deferred scene factories
@@ -8842,6 +8843,60 @@ public:
             opt_.load(g_user_settings ? *g_user_settings : ra2engine::Settings{});
         if (page_ == PAGE_CAMPAIGN) camp_.load(g_user_settings);   // W2-UI-18
     }
+    void gamepad_frame(const ra2engine::GamepadState& pad, uint32_t now) override {
+        using IE = ra2engine::InputEvent;
+        if (!pad.connected) {
+            shell_pad_id_ = -1; shell_focus_ = -1; shell_nav_.reset(0);
+            return;
+        }
+        if (shell_pad_id_ != pad.instance_id || shell_page_ != page_) {
+            shell_pad_id_ = pad.instance_id;
+            shell_page_ = page_;
+            shell_nav_.reset(pad.buttons);  // held A/B after reconnect cannot click
+            shell_focus_ = -1;
+        }
+        const auto rows = layout();
+        std::vector<bool> enabled;
+        enabled.reserve(rows.size());
+        for (const ShellButton& b : rows) enabled.push_back(b.enabled);
+        auto move = [&](int index) {
+            if (index < 0 || index >= static_cast<int>(rows.size())) return;
+            const ra2engine::SbRect r = to_device(rows[static_cast<std::size_t>(index)].rect);
+            IE ev; ev.kind = IE::PointerMove; ev.x = r.x + r.w / 2;
+            ev.y = r.y + r.h / 2; ev.t_ms = now;
+            handle(ev);  // hover/press state uses original SHP frames
+        };
+        if (shell_focus_ < 0 || shell_focus_ >= static_cast<int>(rows.size()) ||
+            !enabled[static_cast<std::size_t>(shell_focus_)]) {
+            shell_focus_ = ra2engine::gamepad_menu_step(enabled, -1, 1);
+            move(shell_focus_);
+        }
+        const auto e = shell_nav_.sample(pad.buttons);
+        if (gf_confirm_.open() || kb_.open_ || sld_.is_open()) {
+            if (e.cancel) {
+                IE ev; ev.kind = IE::Key; ev.key = ra2engine::kKeyEscape;
+                ev.t_ms = now; handle(ev);
+            }
+            return;
+        }
+        const int direction = (e.down || e.right) ? 1 : (e.up || e.left) ? -1 : 0;
+        if (direction && !enabled.empty()) {
+            shell_focus_ = ra2engine::gamepad_menu_step(enabled, shell_focus_, direction);
+            move(shell_focus_);
+        }
+        if (e.cancel) {
+            IE ev; ev.kind = IE::Key; ev.key = ra2engine::kKeyEscape;
+            ev.system_back = (page_ == PAGE_MAIN); // root B opens exit confirmation
+            ev.t_ms = now; handle(ev);
+            return;
+        }
+        if (e.accept && shell_focus_ >= 0) {
+            const ra2engine::SbRect r = to_device(rows[static_cast<std::size_t>(shell_focus_)].rect);
+            IE ev; ev.kind = IE::PointerDown; ev.button = IE::Left;
+            ev.x = r.x + r.w / 2; ev.y = r.y + r.h / 2;
+            ev.t_ms = now; handle(ev); // same ShellButton action/hitbox
+        }
+    }
     void   handle(const ra2engine::InputEvent& ev) override;   // out-of-line: needs SkirmishSetupScene
     void   update(double dt) override;                         // pumps the looping menu music
     const char* name() const override { return "shell"; }    // scripted-input hooks
@@ -9094,6 +9149,10 @@ private:
         art_.audio->sys.mixer->set_bus_gain(
             bus, ra2engine::volume_gain_permille(ra2engine::slider_to_volume(opt_.pos[slider])));
     }
+    ra2engine::GamepadNav shell_nav_;
+    int32_t shell_pad_id_ = -1;
+    ShellPage shell_page_ = PAGE_MAIN;
+    int shell_focus_ = -1;
     int          mx_ = -1, my_ = -1;   // last pointer position (for hover state)
     bool         down_ = false;        // left button currently held (pressed state)
     SaveLoadDialog sld_;               // P7: "Load Saved Game" (Load mode)
