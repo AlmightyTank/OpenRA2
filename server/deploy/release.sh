@@ -12,13 +12,15 @@ usage() {
   cat <<'USAGE'
 Usage:
   bash server/deploy/release.sh preflight <candidate-binary> <sha256-file>
+  bash server/deploy/release.sh bootstrap <candidate-binary> <sha256-file> --apply
   bash server/deploy/release.sh stage <candidate-binary> <sha256-file> --apply
   bash server/deploy/release.sh rollback --apply
 
 Environment:
   RA2_RELEASE_ROOT     installation root (default /opt/openra2-lobby)
   RA2_ADMIN_URL        local admin base (default http://127.0.0.1:8080)
-  RA2_MAINTENANCE_ACK  must be EXACTLY "YES" for stage/rollback
+  RA2_MAINTENANCE_ACK  must be EXACTLY "YES" for bootstrap/stage/rollback
+  RA2_BOOTSTRAP_ACK    must also be "YES" for a first installation
   RA2_RELEASE_NAME     optional version label (safe alphanumeric . _ -)
 The script never restarts a service. After stage, the operator must
 separately perform the approved systemd restart and health check.
@@ -28,16 +30,16 @@ USAGE
 ROOT="${RA2_RELEASE_ROOT:-/opt/openra2-lobby}"
 ADMIN="${RA2_ADMIN_URL:-http://127.0.0.1:8080}"
 MODE="${1:-}"
-case "$MODE" in preflight|stage|rollback) ;; *) usage; exit 2 ;; esac
+case "$MODE" in preflight|bootstrap|stage|rollback) ;; *) usage; exit 2 ;; esac
 if [[ "$ROOT" != /* || "$ROOT" == "/" || "$ROOT" == *"/../"* || "$ROOT" == *"/./"* ]]; then
   echo "ERROR: release root must be a specific absolute directory" >&2; exit 2
 fi
-case "$ADMIN" in
-  http://127.0.0.1:*|http://localhost:*) ;;
-  *) echo "ERROR: admin URL must point to local HTTP only" >&2; exit 2 ;;
-esac
-if [[ "$ADMIN" == *"/"* && "$ADMIN" != "http://127.0.0.1:"* && "$ADMIN" != "http://localhost:"* ]]; then
-  echo "ERROR: invalid admin URL" >&2; exit 2
+if [[ ! "$ADMIN" =~ ^http://(127[.]0[.]0[.]1|localhost):([0-9]{1,5})$ ]]; then
+  echo "ERROR: admin URL must be a local HTTP host and numeric port without a path" >&2; exit 2
+fi
+admin_port="${BASH_REMATCH[2]}"
+if (( 10#$admin_port < 1 || 10#$admin_port > 65535 )); then
+  echo "ERROR: invalid local admin port" >&2; exit 2
 fi
 
 require_idle() {
@@ -81,12 +83,26 @@ verify_candidate() {
   echo "Preflight: checksum and configuration validated"
 }
 
-if [[ "$MODE" == preflight || "$MODE" == stage ]]; then
+if [[ "$MODE" == preflight || "$MODE" == stage || "$MODE" == bootstrap ]]; then
   [[ $# -ge 3 ]] || { usage; exit 2; }
   BINARY="$2"
   SUMS="$3"
   verify_candidate "$BINARY" "$SUMS"
-  require_idle
+  if [[ "$MODE" == bootstrap ]]; then
+    if [[ -e "$ROOT/current" || -L "$ROOT/current" ]]; then
+      echo "BLOCKED: existing release present; use stage with idle preflight instead" >&2; exit 1
+    fi
+    if command -v curl >/dev/null && curl -fsS --max-time 2 "$ADMIN/healthz" >/dev/null 2>&1; then
+      echo "BLOCKED: admin endpoint already serves a running service" >&2; exit 1
+    fi
+    if command -v systemctl >/dev/null && systemctl is-active --quiet ra2lobbyd; then
+      echo "BLOCKED: ra2lobbyd service already active" >&2; exit 1
+    fi
+    echo "Bootstrap preflight: no current release or responsive admin endpoint found."
+    echo "OPERATOR MUST independently verify that the dedicated ports are unused."
+  else
+    require_idle
+  fi
 fi
 
 if [[ "$MODE" == preflight ]]; then
@@ -94,8 +110,12 @@ if [[ "$MODE" == preflight ]]; then
   exit 0
 fi
 
-if [[ "${RA2_MAINTENANCE_ACK:-}" != YES || "${*: -1}" != "--apply" ]]; then
-  echo "BLOCKED: stage/rollback requires --apply and RA2_MAINTENANCE_ACK=YES" >&2
+if [[ "${RA2_MAINTENANCE_ACK:-}" != YES || "${@: -1}" != "--apply" ]]; then
+  echo "BLOCKED: bootstrap/stage/rollback requires --apply and RA2_MAINTENANCE_ACK=YES" >&2
+  exit 2
+fi
+if [[ "$MODE" == bootstrap && "${RA2_BOOTSTRAP_ACK:-}" != YES ]]; then
+  echo "BLOCKED: first installation additionally requires RA2_BOOTSTRAP_ACK=YES" >&2
   exit 2
 fi
 if [[ "$MODE" == rollback ]]; then
