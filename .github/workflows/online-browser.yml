@@ -1,0 +1,56 @@
+name: OpenRA2 Online Lobby Browser
+on:
+  push:
+    branches:
+      - feature/multiplayer-server-v0.1
+    paths:
+      - 'engine/mp_pages.inc'
+      - 'engine/main.cpp'
+      - 'engine/mp/**'
+      - 'tests/test_room_browser.cpp'
+      - 'CMakeLists.txt'
+      - '.github/workflows/online-browser.yml'
+  pull_request:
+    paths:
+      - 'engine/mp_pages.inc'
+      - 'engine/main.cpp'
+      - 'engine/mp/**'
+      - 'tests/test_room_browser.cpp'
+      - 'CMakeLists.txt'
+      - '.github/workflows/online-browser.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  browser-model:
+    name: C++17 browser logic and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile SDL-free browser tests with warnings as errors
+        run: |
+          c++ -std=c++17 -Wall -Wextra -Werror -pedantic -Ithird_party -Iengine \
+            tests/test_main.cpp tests/test_room_browser.cpp -o /tmp/ra2-room-browser-tests
+      - name: Run browser tests
+        run: /tmp/ra2-room-browser-tests --test-case="online browser*"
+
+  native-build:
+    name: Linux game engine and full test binary
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SDL2 build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build pkg-config libasound2-dev libpulse-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
+            libxinerama-dev libxss-dev libgl1-mesa-dev
+      - name: Configure CMake
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Compile engine and tests
+        run: cmake --build build --target ra2engine ra2assets_tests -j 3
+      - name: Run browser tests in engine test binary
+        run: ./build/ra2assets_tests --test-case="online browser*"
