@@ -316,6 +316,7 @@ ra2engine::SbRect popup_button_dev(int i, int n);
 class GfConfirm {
 public:
     bool open() const { return open_; }
+    int button_count() const { return static_cast<int>(buttons_.size()); }
     void ask(const std::string& text, std::vector<std::string> buttons) {
         open_ = true;
         text_ = text;
