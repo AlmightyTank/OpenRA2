@@ -28,6 +28,7 @@ import (
 
 	adminpanel "ra2lobbyd/internal/admin"
 	"ra2lobbyd/internal/lobby"
+	"ra2lobbyd/internal/ops"
 	"ra2lobbyd/internal/relay"
 	"ra2lobbyd/internal/tunnel"
 )
@@ -67,9 +68,24 @@ func main() {
 	maint := flag.String("maint-password", env("RA2_MAINT_PASSWORD", ""), "CnCNet V3 maintenance password (\"\" = off)")
 	allowLoop := flag.Bool("allow-loopback", os.Getenv("RA2_ALLOW_LOOPBACK") == "1", "accept tunnel traffic from 127.0.0.1 (local testing)")
 	showVer := flag.Bool("version", false, "print the version and exit")
+	checkConfig := flag.Bool("check-config", false, "validate settings without opening sockets or starting services")
 	flag.Parse()
 	if *showVer {
 		fmt.Println("ra2lobbyd", version)
+		return
+	}
+	// Validate before binding ANY TCP/UDP socket: --check-config can run
+	// safely on the target host without changing a running service.
+	if err := ops.Validate(ops.Config{
+		Listen: *listen, V3: *v3, Admin: *admin, RelayPorts: *relayPorts,
+		PublicIP: *publicIP, AdminToken: os.Getenv("RA2_ADMIN_TOKEN"),
+		MaxRooms: *maxRooms, MaxRoomsPerIP: *roomsPerIP, MaxConnsPerIP: *connsPerIP,
+		TunnelClients: *maxClients, TunnelIPLimit: *ipLimit,
+	}); err != nil {
+		log.Fatalf("invalid server configuration: %v", err)
+	}
+	if *checkConfig {
+		fmt.Println("ra2lobbyd: configuration valid (no sockets opened)")
 		return
 	}
 	logger := log.New(os.Stderr, "", log.LstdFlags)
