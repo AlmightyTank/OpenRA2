@@ -103,6 +103,7 @@ static char* ra2_cli_pref_path() {
 #include "mp/lan_discovery.hpp"   // multiplayer shell (mp_pages.inc)
 #include "mp/mp_lobby.hpp"
 #include "mp/server_link.hpp"
+#include "mp/room_browser.hpp"
 #include "net/net_game.hpp"     // NET-PLAY: the lockstep driver (net_play.inc)
 #include "net_frame_crc.hpp"    // W9-01-04: the per-frame lockstep CRC
 #include "maplist.hpp"
