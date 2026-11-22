@@ -438,6 +438,15 @@ public:
     Page page() const { return page_; }
     const ra2engine::Settings& settings() const { return set_; }
     int music_track() const { return tracks_.sel; }
+    // V0.1E: only enabled shell buttons are controller focus targets.
+    // Existing pointer hit-testing still performs the actual actions.
+    std::vector<ra2engine::SbRect> gamepad_button_rects() const {
+        std::vector<ra2engine::SbRect> rects;
+        if (!open_ || kb_.open_) return rects;
+        for (const ShellButton& b : buttons())
+            if (b.enabled) rects.push_back(ui_dev(b.rect));
+        return rects;
+    }
 
     Choice handle(const ra2engine::InputEvent& ev) {
         using IE = ra2engine::InputEvent;
