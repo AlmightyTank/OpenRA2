@@ -6773,6 +6773,9 @@ public:
         }
     }
     ~GameScene() override {
+        // The controller-owned reticle is scene-local; restore the OS pointer
+        // when returning to the shell or another scene.
+        if (gamepad_active_) SDL_ShowCursor(SDL_ENABLE);
         net_teardown();   // NET-PLAY: a live session keeps flushing its EXIT
         if (cmd_rec_) {   // NET L1 --record: the end state the replay must reach
             const std::uint64_t h = sim_state_hash();
@@ -7402,7 +7405,10 @@ public:
         menu_.render(ren, tc);
         gf_abort_.render(ren, tc, soviet_ui);   // gF G-14
         sld_.render(ren, tc, SDL_GetTicks(), soviet_ui);
-        if ((menu_.open_ || sld_.is_open()) && os_cursor_hidden_) {   // the pages use the OS pointer
+        if ((menu_.open_ || sld_.is_open() ||
+             (gamepad_active_ && (gf_abort_.open() || show_briefing_ ||
+                                  net_chat_open_ || net_stalled_ || net_end_dialog_))) &&
+            os_cursor_hidden_) {   // modal pages use touch/mouse, not gamepad reticle
             SDL_ShowCursor(SDL_ENABLE);
             os_cursor_hidden_ = false;
         }
