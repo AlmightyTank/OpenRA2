@@ -1275,6 +1275,15 @@ public:
     // Gap owner A (G-22): a War Factory-built HARV/CMIN leaves through the
     // ordinary launch_unit exit, then becomes a miner hunting ore exactly like
     // add_harvester's (SeekOre). No-op on a bad index.
+    // Yuri's Slave Miner economy. Off in every non-Yuri game until the real
+    // game-data host supplies the SLAV combat profile.
+    void arm_yuri_slave_mining(const UnitCombat& worker, int capacity = 5,
+                               int regen_frames = 500) {
+        yuri_slaves_armed_ = true;
+        yuri_slave_combat_ = worker;
+        yuri_slave_capacity_ = std::max(1, capacity);
+        yuri_slave_regen_frames_ = std::max(1, regen_frames);
+    }
     void make_harvester(int unit_idx, bool chrono, int storage_bales) {
         if (unit_idx < 0 || unit_idx >= static_cast<int>(units_.size())) return;
         Unit& u = units_[unit_idx];
@@ -3124,6 +3133,15 @@ private:
     // grow_house_arrays.
     std::vector<double> house_credits_;
     std::vector<PendingHarvestEvent> harvest_events_;  // pending take_harvest_events() drain
+    // Yuri mine index -> stable worker unit indices, saved/hashed for replay.
+    bool yuri_slaves_armed_ = false;
+    UnitCombat yuri_slave_combat_;
+    int yuri_slave_capacity_ = 5;
+    int yuri_slave_regen_frames_ = 500;
+    std::vector<std::pair<int, std::vector<int>>> yuri_slave_mines_;
+    std::vector<std::uint64_t> yuri_slave_spawn_at_;
+    std::vector<int> yuri_slave_prev_alive_;
+    void step_yuri_slave_mining();
 
     // --- Repair & Sell phase [RE: repair-sell.md] -------------------------
     // ALL inert by default. repair_sell_any_ is opened ONLY by set_repair
