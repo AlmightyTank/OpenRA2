@@ -232,6 +232,16 @@ int run_gf_play(const std::string& scenario, const std::string& out_dir) {
                     c.check(count_buildings(w, 0, "YACNST") == 1, "Yuri PCV unfolds into YACNST");
                 const bool built = build_from_sidebar(c, *g, yuri ? "YAPOWR" : (soviet ? "NAPOWR" : "GAPOWR"), cy);
                 c.check(built, "ConYard builds a power plant from the sidebar");
+                if (yuri && built) {
+                    // A complete v0.2A smoke must demonstrate the core Yuri
+                    // production prerequisite chain, not just faction selection.
+                    const bool barracks = build_from_sidebar(c, *g, "YABRCK", cy);
+                    c.check(barracks, "Yuri Barracks placed from the sidebar");
+                    if (barracks) {
+                        const bool war_factory = build_from_sidebar(c, *g, "YAWEAP", cy);
+                        c.check(war_factory, "Yuri War Factory placed from the sidebar");
+                    }
+                }
                 step(*g, 60);
                 g->gf_center_cell(w.buildings()[(std::size_t)cy].cx + 2, w.buildings()[(std::size_t)cy].cy + 1);
                 c.shot(*g, "gf_built.png");
