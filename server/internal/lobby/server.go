@@ -694,12 +694,21 @@ func (s *Server) onJoin(cl *client, m *Msg) {
 	cl.send(joined)
 }
 
-func (s *Server) closeRoom(cl *client) {
+func (s *Server) closeRoom(cl *client) { _ = s.closeRoomIf(cl, "", false) }
+
+// closeRoomIf checks both the room code and its started state while holding
+// the room mutex. Admin actions never accidentally close a newly hosted room
+// after a concurrent room change. Host-initiated closure is unchanged.
+func (s *Server) closeRoomIf(cl *client, expectedCode string, onlyWaiting bool) error {
 	s.mu.Lock()
 	r := cl.hosted
-	if r == nil {
+	if r == nil || (expectedCode != "" && r.Code != expectedCode) {
 		s.mu.Unlock()
-		return
+		return ErrRoomNotFound
+	}
+	if onlyWaiting && r.Started {
+		s.mu.Unlock()
+		return ErrRoomStarted
 	}
 	delete(s.rooms, r.Code)
 	delete(s.activeV3, r.HostV3)
@@ -724,7 +733,13 @@ func (s *Server) closeRoom(cl *client) {
 	for _, m := range members {
 		m.send(Msg{T: "room_closed", Code: r.Code})
 	}
-	s.logf("room %s closed", r.Code)
+	if expectedCode != "" {
+		cl.send(Msg{T: "room_closed", Code: r.Code})
+		s.logf("operator closed waiting room %s", r.Code)
+	} else {
+		s.logf("room %s closed", r.Code)
+	}
+	return nil
 }
 
 func (s *Server) drop(cl *client) {
