@@ -110,4 +110,8 @@ PATH="$ROOT/fake-bin:$PATH" RA2_ADMIN_URL="http://127.0.0.1:19998" \
   bash server/deploy/release.sh rollback --apply >"$ROOT/emergency"
 [[ "$(readlink -f "$ROOT/releases-root/current")" == *"smoke-v2" ]] ||
   { echo "offline rollback did not select previous release" >&2;exit 1; }
-echo "PASS: health, operator auth, metrics, dry-run, staging, bootstrap, rollback and offline recovery"
+# Do the live V3 UDP forwarding probe LAST: it intentionally registers
+# tunnel IDs, which remain active briefly and should block deploy preflight.
+command -v python3 >/dev/null || { echo "python3 needed for network probe" >&2; exit 1; }
+python3 server/deploy/network-probe.py 50175 50176
+echo "PASS: health, operator auth, metrics, dry-run, staging, bootstrap, rollback and offline recovery, TCP + UDP relay"
