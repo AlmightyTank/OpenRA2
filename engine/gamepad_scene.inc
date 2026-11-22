@@ -153,15 +153,20 @@
         }
         std::vector<bool> enabled(rects.size(), true);
         const int direction = e.down || e.right ? 1 : e.up || e.left ? -1 : 0;
-        if (gamepad_menu_ix_ < 0)
+        bool moved = false;
+        if (gamepad_menu_ix_ < 0) {
             gamepad_menu_ix_ = ra2engine::gamepad_menu_step(enabled, -1, 1);
-        else if (direction)
+            moved = true;
+        } else if (direction) {
             gamepad_menu_ix_ = ra2engine::gamepad_menu_step(enabled, gamepad_menu_ix_, direction);
+            moved = true;
+        }
         if (gamepad_menu_ix_ < 0) return;
         const ra2engine::SbRect r = rects[static_cast<std::size_t>(gamepad_menu_ix_)];
         const int x = r.x + r.w / 2, y = r.y + r.h / 2;
-        gamepad_pointer_at(ra2engine::InputEvent::PointerMove,
-                            ra2engine::InputEvent::Left, false, x, y, now_ms);
+        if (moved || e.accept)
+            gamepad_pointer_at(ra2engine::InputEvent::PointerMove,
+                                ra2engine::InputEvent::Left, false, x, y, now_ms);
         if (e.accept) {
             gamepad_pointer_at(ra2engine::InputEvent::PointerDown,
                                 ra2engine::InputEvent::Left, false, x, y, now_ms);
