@@ -26,6 +26,7 @@ import (
 	"syscall"
 	"time"
 
+	"ra2lobbyd/internal/admin"
 	"ra2lobbyd/internal/lobby"
 	"ra2lobbyd/internal/relay"
 	"ra2lobbyd/internal/tunnel"
@@ -126,7 +127,17 @@ func main() {
 	}
 
 	if *admin != "" {
-		go serveAdmin(*admin, srv, v2, v3t, pool, logger)
+		// Both the existing metrics endpoint and the optional dashboard are
+		// strictly local. SSH port forwarding is supported; binding publicly
+		// is rejected rather than risking a management interface exposure.
+		if !admin.LoopbackOnly(*admin) {
+			logger.Fatalf("admin listener must bind to localhost/loopback, got %q", *admin)
+		}
+		token := os.Getenv("RA2_ADMIN_TOKEN")
+		if token != "" && len(token) < 32 {
+			logger.Fatal("RA2_ADMIN_TOKEN must be at least 32 bytes; use a random secret")
+		}
+		go serveAdmin(*admin, srv, v2, v3t, pool, token, logger)
 	}
 	logger.Printf("ra2lobbyd %s: control+V2 %s, V3 %s, relay %s, server name %q", version, *listen, *v3, *relayPorts, *name)
 
@@ -163,8 +174,17 @@ func parseRange(s string) (int, int, error) {
 	return lo, hi, nil
 }
 
-func serveAdmin(addr string, srv *lobby.Server, v2 *tunnel.V2, v3 *tunnel.V3, pool *relay.Pool, logger *log.Logger) {
+func serveAdmin(addr string, srv *lobby.Server, v2 *tunnel.V2, v3 *tunnel.V3, pool *relay.Pool, token string, logger *log.Logger) {
 	mux := http.NewServeMux()
+	if token != "" {
+		h, err := admin.New(srv, v2, v3, pool, token)
+		if err != nil {
+			logger.Printf("admin dashboard disabled: %v", err)
+			return
+		}
+		mux.Handle("/admin/", h)
+		logger.Printf("admin dashboard enabled on loopback-only listener")
+	}
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "ok rooms=%d\n", srv.RoomCount())
 	})
