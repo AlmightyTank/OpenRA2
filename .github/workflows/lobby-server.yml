@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - feature/multiplayer-server-v0.1
+      - feature/android-gamepad-v0.1
     paths:
       - 'server/**'
       - '.github/workflows/lobby-server.yml'
