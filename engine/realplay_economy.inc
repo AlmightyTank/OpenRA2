@@ -14,6 +14,14 @@
 void real_play_arm_economy(ra2engine::World& world, const BuildingAssets& ba, const Rules& rules,
                            Assets& a) {
     wire_economy(world, ba, rules);
+    // Yuri's deployed Slave Miner becomes a YAREFN; its five SLAV workers
+    // use the existing ore/unloading economy, not the standard HARV vehicle.
+    // Only a match with Yuri houses arms this deterministic subsystem.
+    bool has_yuri = false;
+    for (int h = 0; h < world.house_count(); ++h)
+        has_yuri = has_yuri || world.house_side(h) == ra2engine::World::Side::Yuri;
+    if (has_yuri && rules.is_infantry("SLAV"))
+        world.arm_yuri_slave_mining(resolve_combat_unit(rules, "SLAV").combat, 5, 500);
     world.set_water_terrain(resolve_land_types(a.map, a.theater, world.grid_w(), world.grid_h()));
 }
 
