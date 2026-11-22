@@ -170,7 +170,12 @@ func serveAdmin(addr string, srv *lobby.Server, v2 *tunnel.V2, v3 *tunnel.V3, po
 	})
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		m := &srv.Metrics
-		fmt.Fprintf(w, "ra2lobbyd_rooms %d\n", srv.RoomCount())
+		stats := srv.Stats()
+		fmt.Fprintf(w, "ra2lobbyd_rooms %d\n", stats.Total)
+		fmt.Fprintf(w, "ra2lobbyd_rooms_waiting %d\n", stats.Waiting)
+		fmt.Fprintf(w, "ra2lobbyd_rooms_started %d\n", stats.Started)
+		fmt.Fprintf(w, "ra2lobbyd_rooms_private %d\n", stats.Private)
+		fmt.Fprintf(w, "ra2lobbyd_participants_connected %d\n", stats.Participants)
 		fmt.Fprintf(w, "ra2lobbyd_connections_total %d\n", m.Conns.Load())
 		fmt.Fprintf(w, "ra2lobbyd_hellos_total %d\n", m.Hellos.Load())
 		fmt.Fprintf(w, "ra2lobbyd_rejects_total %d\n", m.Rejects.Load())
