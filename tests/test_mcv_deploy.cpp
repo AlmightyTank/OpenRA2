@@ -191,3 +191,21 @@ TEST_CASE("mcv: Yuri PCV deploys into YACNST without Soviet or Allied substituti
     CHECK(w.buildings()[(std::size_t)b].house == 0);
     CHECK(w.units()[0].deployed_away);
 }
+
+TEST_CASE("mcv: Yuri Slave Miner deploys into YAREFN refinery") {
+    MCV_WORLD(w, x0, y0);
+    BuildingTypeDef refinery = conyard_def();
+    refinery.id = "YAREFN";
+    refinery.conyard = false;
+    w.set_building_types({refinery});
+    UnitCombat miner = mcv_combat();
+    miner.image = "SMIN";
+    miner.deploys_into = "YAREFN";
+    w.add_combat_unit(x0 + 5, y0 + 5, 0, miner);
+    REQUIRE(w.order_deploy_mcv(0));
+    const int b = run_until_deployed(w, 600);
+    REQUIRE(b >= 0);
+    CHECK(w.btypes()[(std::size_t)w.buildings()[(std::size_t)b].type].id == "YAREFN");
+    CHECK(w.buildings()[(std::size_t)b].house == 0);
+    CHECK(w.units()[0].deployed_away);
+}
