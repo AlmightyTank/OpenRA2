@@ -102,7 +102,7 @@ private:
                 "LTNK", "YTNK", "TELE", "MIND", "CAOS", "SMIN", "PCV",
                 "YHVR", "DISK", "BSUB"
             };
-            ids.insert(ids.end(), std::begin(kYuriArt), std::end(kYuriArt));
+            for (const char* id : kYuriArt) ids.emplace_back(id);
         }
         MixFile* conquer = nullptr;
         std::unique_ptr<MixFile> conquer_holder;
