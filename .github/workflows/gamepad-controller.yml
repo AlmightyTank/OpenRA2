@@ -55,7 +55,23 @@ jobs:
             cmake ninja-build pkg-config libasound2-dev libpulse-dev \
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev \
             libxi-dev libxss-dev libxkbcommon-dev
-      - name: Configure engine with pinned SDL2
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DRA2_BUILD_ENGINE=ON
+      # The pinned GitHub Release attachment can intermittently return HTTP
+      # 403 on hosted Linux runners. Fetch the exact same verified release
+      # archive directly from SDL's official release host instead.
+      - name: Download and verify pinned SDL2 2.30.9
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/SDL2-2.30.9.tar.gz"
+          mkdir -p "$RUNNER_TEMP/sdl2-source"
+          curl -fL --retry 4 --retry-all-errors --connect-timeout 20 \
+            https://www.libsdl.org/release/SDL2-2.30.9.tar.gz -o "$archive"
+          echo "24b574f71c87a763f50704bbb630cbe38298d544a1f890f099a4696b1d6beba4  $archive" | sha256sum -c -
+          tar -xzf "$archive" --strip-components=1 -C "$RUNNER_TEMP/sdl2-source"
+          test -f "$RUNNER_TEMP/sdl2-source/CMakeLists.txt"
+      - name: Configure engine with verified SDL2 sources
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DRA2_BUILD_ENGINE=ON \
+            "-DFETCHCONTENT_SOURCE_DIR_SDL2=$RUNNER_TEMP/sdl2-source"
       - name: Compile engine
         run: cmake --build build --target ra2engine --parallel 2
