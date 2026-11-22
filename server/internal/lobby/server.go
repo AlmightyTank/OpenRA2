@@ -77,9 +77,12 @@ type client struct {
 	plat    int
 	hosted  *Room
 	joined  map[*Room]bool
+	v3ByRoom map[*Room]uint32 // reserved tunnel id in each joined room
 	allocs  []*relay.Allocation
 	bucket  *limit.Bucket
 	closing atomic.Bool
+	outMu sync.Mutex // guards sends and closing the writer channel
+	outClosed bool
 }
 
 // Server is the room directory.
@@ -89,6 +92,7 @@ type Server struct {
 	V2      *tunnel.V2  // for the HTTP side of the V2 tunnel (nil = no /request)
 	mu      sync.Mutex
 	rooms   map[string]*Room
+	activeV3 map[uint32]bool // global across rooms; V3 tunnel ids are not room-scoped
 	conns   *limit.Counter
 	roomsIP *limit.Counter
 	relayIP *limit.Counter
@@ -132,7 +136,7 @@ func New(cfg Config) *Server {
 	if cfg.Logger == nil {
 		cfg.Logger = log.Default()
 	}
-	return &Server{cfg: cfg, rooms: map[string]*Room{},
+	return &Server{cfg: cfg, rooms: map[string]*Room{}, activeV3: map[uint32]bool{},
 		conns:   limit.NewCounter(cfg.MaxConnsPerIP),
 		roomsIP: limit.NewCounter(cfg.MaxRoomsPerIP),
 		relayIP: limit.NewCounter(cfg.MaxRelayPerIP),
@@ -143,6 +147,14 @@ func (s *Server) logf(f string, a ...any) { s.cfg.Logger.Printf(f, a...) }
 
 // RoomCount is the number of open rooms.
 func (s *Server) RoomCount() int { s.mu.Lock(); defer s.mu.Unlock(); return len(s.rooms) }
+
+// A host's room update can lag behind actual TCP joins. Count the larger
+// value so concurrent joins cannot overfill a room before the next update.
+func roomPlayerCount(r *Room) int {
+	connected := len(r.members) + 1 // host is the first player
+	if r.Players > connected { return r.Players }
+	return connected
+}
 
 // ---------------------------------------------------------- room codes --
 
@@ -328,12 +340,13 @@ func (s *Server) handleConn(c net.Conn, br *bufio.Reader) {
 	ip := limit.IPKey(c.RemoteAddr()) // the per-IP slot was acquired by sniff
 	s.Metrics.Conns.Add(1)
 	cl := &client{srv: s, conn: c, ip: ip, out: make(chan []byte, 64), joined: map[*Room]bool{},
+		v3ByRoom: map[*Room]uint32{},
 		bucket: limit.NewBucket(s.cfg.MsgRate, s.cfg.MsgBurst, nil)}
 	done := make(chan struct{})
 	go cl.writer(done)
 	defer func() {
 		s.drop(cl)
-		close(cl.out)
+		cl.closeOut()
 		<-done
 		c.Close()
 		s.conns.Release(ip)
@@ -402,16 +415,29 @@ func (cl *client) writer(done chan struct{}) {
 }
 
 func (cl *client) send(m Msg) {
-	if cl.closing.Load() {
-		return
-	}
 	b, _ := json.Marshal(m)
 	b = append(b, '\n')
+	cl.outMu.Lock()
+	defer cl.outMu.Unlock()
+	if cl.outClosed || cl.closing.Load() {
+		return
+	}
 	select {
 	case cl.out <- b:
 	default: // a client that does not read is cut off
 		cl.closing.Store(true)
 		cl.conn.Close()
+	}
+}
+
+// A room closure can notify a peer concurrently with that peer disconnecting.
+// Never close its channel while a notification is being enqueued.
+func (cl *client) closeOut() {
+	cl.outMu.Lock()
+	defer cl.outMu.Unlock()
+	if !cl.outClosed {
+		cl.outClosed = true
+		close(cl.out)
 	}
 }
 
@@ -480,7 +506,7 @@ func (s *Server) list() []RoomInfo {
 		if r.Private {
 			continue
 		}
-		out = append(out, RoomInfo{Code: r.Code, Name: r.Name, Host: r.host.nick, Map: r.Map, Players: r.Players,
+		out = append(out, RoomInfo{Code: r.Code, Name: r.Name, Host: r.host.nick, Map: r.Map, Players: roomPlayerCount(r),
 			Max: r.Max, Started: r.Started, PW: r.PW, Sim: r.Sim, Rules: r.Rules, Plat: r.Plat})
 	}
 	// Stable order for clients: oldest first.
@@ -513,6 +539,12 @@ func (s *Server) onCreate(cl *client, m *Msg) {
 		fail("full")
 		return
 	}
+	if s.activeV3[m.V3] {
+		s.mu.Unlock()
+		s.roomsIP.Release(cl.ip)
+		fail("v3_taken")
+		return
+	}
 	code := NewCode()
 	for s.rooms[code] != nil {
 		code = NewCode()
@@ -521,6 +553,7 @@ func (s *Server) onCreate(cl *client, m *Msg) {
 		Sim: cl.sim, Rules: cl.rules, Plat: cl.plat, HostV3: m.V3, host: cl, members: map[*client]bool{},
 		v3ids: map[uint32]bool{m.V3: true}, created: time.Now()}
 	s.rooms[code] = r
+	s.activeV3[m.V3] = true
 	cl.hosted = r
 	s.mu.Unlock()
 	s.Metrics.RoomsCreated.Add(1)
@@ -536,7 +569,7 @@ func (s *Server) onUpdate(cl *client, m *Msg) {
 		cl.send(Msg{T: "error", Op: "update", Reason: "no_room"})
 		return
 	}
-	if m.Max >= 2 && m.Max <= 8 {
+	if m.Max >= 2 && m.Max <= 8 && m.Max >= len(r.members)+1 {
 		r.Max = m.Max
 	}
 	if m.Players >= 1 && m.Players <= 8 {
@@ -562,52 +595,50 @@ func (s *Server) onJoin(cl *client, m *Msg) {
 		fail("no_room")
 		return
 	}
-	if m.V3 == 0 {
+	if m.V3 == 0 || (m.Relay != "" && m.Relay != "v3" && m.Relay != "port") {
 		fail("bad_request")
 		return
 	}
-	s.mu.Lock()
-	r := s.rooms[code]
-	switch {
-	case r == nil:
-		s.mu.Unlock()
-		fail("no_room")
-		return
-	case r.host == cl:
-		s.mu.Unlock()
-		fail("already")
-		return
-	case r.Started:
-		s.mu.Unlock()
-		fail("started")
-		return
-	case r.Players >= r.Max:
-		s.mu.Unlock()
-		fail("full")
-		return
-	case r.Sim != cl.sim || r.Rules != cl.rules:
-		s.mu.Unlock()
-		fail("version")
-		return
-	case r.v3ids[m.V3]:
-		s.mu.Unlock()
-		fail("v3_taken")
+	if m.Relay == "port" && s.Pool == nil {
+		fail("relay_unavailable")
 		return
 	}
-	r.nextCID++
-	cid := r.nextCID
-	r.v3ids[m.V3] = true
-	r.members[cl] = true
-	cl.joined[r] = true
-	host := r.host
-	hostV3, hostNick := r.HostV3, r.host.nick
-	s.mu.Unlock()
 
-	joined := Msg{T: "joined", Code: code, CID: cid, HostNick: hostNick, HostV3: hostV3, V3Port: s.cfg.V3Port,
+	s.mu.Lock()
+	r := s.rooms[code]
+	var reason string
+	switch {
+	case r == nil:
+		reason = "no_room"
+	case r.host == cl || cl.joined[r]:
+		reason = "already"
+	case r.Started:
+		reason = "started"
+	case roomPlayerCount(r) >= r.Max:
+		reason = "full"
+	case r.Sim != cl.sim || r.Rules != cl.rules:
+		reason = "version"
+	case s.activeV3[m.V3]:
+		// CnCNet V3 ids are global, *not* scoped to a room. Cross-room
+		// collisions could otherwise route unrelated matches together.
+		reason = "v3_taken"
+	}
+	if reason != "" {
+		s.mu.Unlock()
+		fail(reason)
+		return
+	}
+
+	joined := Msg{T: "joined", Code: code, CID: r.nextCID + 1,
+		HostNick: r.host.nick, HostV3: r.HostV3, V3Port: s.cfg.V3Port,
 		PublicIP: s.cfg.PublicIP}
-	peer := Msg{T: "peer", CID: cid, Nick: cl.nick, PID: cl.pid, V3: m.V3}
-	if m.Relay == "port" && s.Pool != nil {
+	peer := Msg{T: "peer", CID: joined.CID, Nick: cl.nick, PID: cl.pid, V3: m.V3}
+
+	// A failed relay allocation must not create phantom room membership or
+	// consume a V3 id. Keep room reservation atomic with allocation success.
+	if m.Relay == "port" {
 		if !s.relayIP.Acquire(cl.ip) {
+			s.mu.Unlock()
 			fail("rate")
 			return
 		}
@@ -615,6 +646,7 @@ func (s *Server) onJoin(cl *client, m *Msg) {
 		a, err := s.Pool.Allocate(func() { s.relayIP.Release(ip) })
 		if err != nil {
 			s.relayIP.Release(ip)
+			s.mu.Unlock()
 			fail("busy")
 			return
 		}
@@ -622,8 +654,17 @@ func (s *Server) onJoin(cl *client, m *Msg) {
 		joined.RelayPort, joined.RelayToken = a.Port, hex.EncodeToString(a.ClientToken[:])
 		peer.RelayPort, peer.RelayToken = a.Port, hex.EncodeToString(a.HostToken[:])
 	}
+	r.nextCID++
+	r.v3ids[m.V3] = true
+	s.activeV3[m.V3] = true
+	r.members[cl] = true
+	cl.joined[r] = true
+	cl.v3ByRoom[r] = m.V3
+	host := r.host
+	s.mu.Unlock()
+
 	s.Metrics.Joins.Add(1)
-	s.logf("room %s: join from %s (cid %d)", code, limit.Truncate(cl.ip), cid)
+	s.logf("room %s: join from %s (cid %d)", code, limit.Truncate(cl.ip), joined.CID)
 	host.send(peer)
 	cl.send(joined)
 }
@@ -636,10 +677,15 @@ func (s *Server) closeRoom(cl *client) {
 		return
 	}
 	delete(s.rooms, r.Code)
+	delete(s.activeV3, r.HostV3)
 	cl.hosted = nil
 	members := make([]*client, 0, len(r.members))
 	for m := range r.members {
 		members = append(members, m)
+		if id, ok := m.v3ByRoom[r]; ok {
+			delete(s.activeV3, id)
+			delete(m.v3ByRoom, r)
+		}
 		delete(m.joined, r)
 	}
 	s.mu.Unlock()
@@ -655,6 +701,11 @@ func (s *Server) drop(cl *client) {
 	s.mu.Lock()
 	for r := range cl.joined {
 		delete(r.members, cl)
+		if id, ok := cl.v3ByRoom[r]; ok {
+			delete(r.v3ids, id)
+			delete(s.activeV3, id)
+			delete(cl.v3ByRoom, r)
+		}
 	}
 	cl.joined = map[*Room]bool{}
 	s.mu.Unlock()
