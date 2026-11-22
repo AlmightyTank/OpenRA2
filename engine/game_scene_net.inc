@@ -487,6 +487,9 @@
                 net_bg_away_ = false;
                 const std::uint64_t now = ra2mp::now_ms();
                 const std::uint64_t away_ms = now - net_bg_at_;
+                // Resume V3 registration on the current socket before the
+                // BACK notice, without resetting deterministic game state.
+                if (net_->mpnet) net_->mpnet->refresh_tunnel(now);
                 net_->game->send_away(true, 0);
                 SDL_Log("[lifecycle] foreground in a network game: BACK sent (away %llu ms)",
                         static_cast<unsigned long long>(away_ms));
