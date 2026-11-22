@@ -125,7 +125,10 @@ func New(cfg Config) *Server {
 		cfg.HelloTimeout = 10 * time.Second
 	}
 	if cfg.IdleTimeout <= 0 {
-		cfg.IdleTimeout = 60 * time.Second
+		// Android lobby AWAY is 90 seconds; a suspended app cannot send the
+		// 10-second TCP keepalive while frozen. Give its control connection
+		// enough grace to return before the host's room is deleted.
+		cfg.IdleTimeout = 120 * time.Second
 	}
 	if cfg.MaxRelayPerIP <= 0 {
 		cfg.MaxRelayPerIP = 10
