@@ -85,6 +85,7 @@ static char* ra2_cli_pref_path() {
 #include "iso_project.hpp"
 #include "iso_renderer.hpp"
 #include "platform.hpp"
+#include "gamepad_cursor.hpp"
 #include "platform_os.hpp"   // W2-AR-22 registry / folder picker / console
 #include "os_profiler.hpp"   // R-171 dev sampling profiler (RA2_PROFILE)
 #include <functional>        // W2-AR-10 deferred scene factories
@@ -5821,6 +5822,10 @@ void apply_audio_settings(ra2engine::Mixer& m, const ra2engine::Settings& s) {
 struct Scene {
     virtual void   handle(const ra2engine::InputEvent& ev) { (void)ev; }
     virtual void   update(double dt)                        { (void)dt; }
+    // Local, presentation-only controller update. Never used in replay/gates.
+    virtual void   gamepad_frame(const ra2engine::GamepadState& pad, uint32_t now_ms) {
+        (void)pad; (void)now_ms;
+    }
     virtual void   render(ra2engine::Platform& plat, ra2engine::TextureCache& tc) {
         (void)plat; (void)tc;
     }
@@ -5967,6 +5972,10 @@ int run_scene_driver(ra2engine::Platform& plat, ra2engine::TextureCache& tc, Sce
         if (rec) rec->frame(frame, dt);
         const Uint64 pc1 = SDL_GetPerformanceCounter();
         net_linger_pump();   // NET-PLAY
+        // Only interactive hardware sessions sample real controller state.
+        // --play, input recordings/replay, fixed-dt gates stay deterministic.
+        if (!src && !hooks && fixed_dt <= 0.0 && !replay)
+            scene->gamepad_frame(plat.gamepad_state(), now);
         scene->update(dt);
         const Uint64 pc2 = SDL_GetPerformanceCounter();
         Uint64 pc3 = pc2;
@@ -6907,7 +6916,7 @@ public:
         // (track_pointer), and only a real MOUSE edge-scrolls -- a lifted
         // finger leaves no pointer at the edge, so touch never scrolls forever.
         const int kEdge = 24;   // window-edge scroll band (true screen edge, incl. sidebar)
-        if (mouse_present_) {
+        if (mouse_present_ && !gamepad_active_) {
             if (mx_ <= kEdge) dir_x += 1;
             else if (mx_ >= kWinW - kEdge) dir_x -= 1;
             if (my_ <= kEdge) dir_y += 1;
@@ -7366,6 +7375,10 @@ public:
             drew = pres_.draw_cursor(ren, tc, mouse_, world_, input_, mx_, my_,
                                      sidebar_up_ && lay_.contains(mx_, my_), playfield_w_, kWinW,
                                      kWinH, world_.repair_frame(), static_cast<int>(cursor_action()));
+        // A gamepad pointer is rendered by our software reticle even if the
+        // original MOUSE.SHP cursor art is unavailable. Never show a second
+        // stale OS pointer at the last physical mouse position.
+        if (gamepad_active_ && !gamepad_modal_blocked()) drew = true;
         if (drew != os_cursor_hidden_) {
             SDL_ShowCursor(drew ? SDL_DISABLE : SDL_ENABLE);
             os_cursor_hidden_ = drew;
@@ -7394,6 +7407,7 @@ public:
             os_cursor_hidden_ = false;
         }
         net_render(ren, tc);   // NET-PLAY: chat line, waiting / reconnect / out-of-sync dialogs
+        draw_gamepad_cursor(ren); // v0.1C: visible logical-canvas controller reticle
         screencap_tick(ren);   // W5-E ScreenCapture hotkey
     }
 
@@ -7406,6 +7420,7 @@ public:
 
     // G0 --play harness surface (name/locate/probe/cheat) + pointer tracking.
 #include "game_scene_play.inc"
+#include "gamepad_scene.inc"   // v0.1C: controller-only cursor/camera input
     // Agent B controls/UI members (cursor state, building selection, hotkeys).
 #include "game_scene_controls.inc"
 #include "game_scene_commands.inc"   // NET L1: command queue / host / record
