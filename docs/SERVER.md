@@ -394,3 +394,20 @@ The room browser's search/sort/filter/selection logic lives in the SDL-free
 
 **Deployment:** none. Do not change master, VPS services or firewall ports
 until the above checks pass.
+
+
+### S0.1E — Protected operator dashboard
+
+The self-hosted Go daemon now includes an **opt-in local administration UI**
+at `http://127.0.0.1:8080/admin/`. Set a random secret of at least
+32 bytes using the `RA2_ADMIN_TOKEN` environment variable to enable
+it; when unset, the dashboard is disabled. The admin listener must
+remain bound to loopback, including when SSH forwarding is used.
+
+The dashboard shows public/private rooms, connected host/guest display names,
+per-room status and relay health. An operator can close **waiting** rooms
+after confirmation; **started** rooms are read-only because the lobby
+directory does not own their game simulation.
+
+Full security design, endpoint details, regression tests and safe local
+setup: [S0.1E Administration Dashboard](S0.1E-ADMIN-DASHBOARD.md).
