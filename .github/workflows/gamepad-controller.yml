@@ -1,0 +1,43 @@
+name: Gamepad controller regression checks
+
+on:
+  push:
+    branches: [feature/android-gamepad-v0.1]
+    paths:
+      - 'engine/gamepad_**'
+      - 'engine/game_scene_play.inc'
+      - 'engine/main.cpp'
+      - 'engine/platform.cpp'
+      - 'engine/platform.hpp'
+      - 'tests/test_gamepad_**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/gamepad-controller.yml'
+  pull_request:
+    paths:
+      - 'engine/gamepad_**'
+      - 'engine/game_scene_play.inc'
+      - 'engine/main.cpp'
+      - 'engine/platform.cpp'
+      - 'engine/platform.hpp'
+      - 'tests/test_gamepad_**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/gamepad-controller.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  gamepad-pure-cpp:
+    name: C++17 gamepad logic
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build SDL-free gamepad regression tests
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic \
+            -Ithird_party -Iengine \
+            tests/test_main.cpp tests/test_gamepad_registry.cpp tests/test_gamepad_cursor.cpp \
+            -o /tmp/ra2-gamepad-tests
+      - name: Execute controller and cursor tests
+        run: /tmp/ra2-gamepad-tests --test-case="gamepad*"
