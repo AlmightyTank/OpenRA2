@@ -4,6 +4,7 @@
 
 #include "asset_fixture.hpp"
 #include "building.hpp"
+#include "harvest.hpp"
 #include "world.hpp"
 
 using namespace ra2engine;
@@ -208,4 +209,29 @@ TEST_CASE("mcv: Yuri Slave Miner deploys into YAREFN refinery") {
     CHECK(w.btypes()[(std::size_t)w.buildings()[(std::size_t)b].type].id == "YAREFN");
     CHECK(w.buildings()[(std::size_t)b].house == 0);
     CHECK(w.units()[0].deployed_away);
+}
+
+TEST_CASE("yuri economy: deployed refinery creates five workers and releases them if destroyed") {
+    MCV_WORLD(w, x0, y0);
+    BuildingTypeDef mine = conyard_def();
+    mine.id = "YAREFN";
+    mine.conyard = false;
+    w.set_economy({mine}, {0}, OreValues{25, 50}, 0.0, 0.0, 0.0);
+    UnitCombat worker = mcv_combat();
+    worker.image = "SLAV";
+    worker.is_vehicle = false;
+    worker.deploys_into.clear();
+    w.arm_yuri_slave_mining(worker, 5, 500);
+    const int bi = w.add_building(0, x0 + 4, y0 + 4, 4, 4, 0, 1000,
+                                  armor_index("wood"), 0.0, true);
+    REQUIRE(bi >= 0);
+    w.step(1.0 / 15.0);
+    int workers = 0;
+    for (const Unit& u : w.units())
+        if (u.alive && u.image == "SLAV" && u.house == 0 && u.is_harvester) ++workers;
+    CHECK(workers == 5);
+    w.campaign_damage_building(bi, 1000000);
+    w.step(1.0 / 15.0);
+    for (const Unit& u : w.units())
+        if (u.alive && u.image == "SLAV") CHECK_FALSE(u.is_harvester);
 }
