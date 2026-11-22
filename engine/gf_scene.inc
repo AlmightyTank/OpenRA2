@@ -87,7 +87,7 @@ private:
     // Render assets for every MCV type (so a produced, campaign-placed or
     // undeployed MCV draws) plus whatever launch_skirmish spawned at start.
     void gf_load_assets(const std::vector<std::string>& spawned) {
-        std::vector<std::string> ids = gf_tokens(rules_.general_string("BaseUnit", "AMCV,SMCV"));
+        std::vector<std::string> ids = gf_tokens(rules_.general_string("BaseUnit", "AMCV,SMCV,PCV"));
         for (const std::string& id : spawned) ids.push_back(id);
         MixFile* conquer = nullptr;
         std::unique_ptr<MixFile> conquer_holder;
